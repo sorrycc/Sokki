@@ -1,0 +1,78 @@
+import SwiftUI
+import ServiceManagement
+
+struct SettingsView: View {
+    @State var store: MatchStore
+
+    var body: some View {
+        TabView {
+            MatchListView(store: store)
+                .tabItem { Label("Matches", systemImage: "list.bullet") }
+
+            GeneralSettingsView(store: store)
+                .tabItem { Label("General", systemImage: "gear") }
+        }
+        .frame(minWidth: 500, minHeight: 400)
+    }
+}
+
+struct GeneralSettingsView: View {
+    @Bindable var store: MatchStore
+    @State private var launchAtLogin = false
+
+    var body: some View {
+        Form {
+            Section("Behavior") {
+                Toggle("Launch at Login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        setLaunchAtLogin(newValue)
+                    }
+
+                TextField("Clipboard threshold (chars)", value: $store.config.clipboardThreshold, format: .number)
+                    .help("Text longer than this will use clipboard injection")
+
+                Toggle("Preserve clipboard", isOn: $store.config.preserveClipboard)
+                    .help("Restore clipboard after clipboard-mode injection")
+
+                TextField("Inject delay (ms)", value: $store.config.injectDelay, format: .number)
+                    .help("Delay between simulated keypresses")
+
+                TextField("Restore clipboard delay (ms)", value: $store.config.restoreClipboardDelay, format: .number)
+            }
+
+            Section("Logging") {
+                Picker("Log level", selection: $store.config.logLevel) {
+                    Text("Error").tag("error")
+                    Text("Debug").tag("debug")
+                }
+            }
+
+            Section("Toggle Shortcut") {
+                Picker("Quick toggle", selection: $store.config.toggleShortcut) {
+                    Text("Double Option").tag("double_option")
+                    Text("Double Shift").tag("double_shift")
+                    Text("Double Control").tag("double_control")
+                    Text("None").tag("none")
+                }
+                .help("Double-tap to toggle EspansoX on/off")
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .onAppear {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            Logger.shared.error("Failed to set launch at login: \(error.localizedDescription)")
+        }
+    }
+}
