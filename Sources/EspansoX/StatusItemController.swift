@@ -20,7 +20,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "text.cursor", accessibilityDescription: "EspansoX")
+            button.image = Self.makeMenuBarIcon()
         }
 
         menu.delegate = self
@@ -29,11 +29,50 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func updateIcon(enabled: Bool) {
         self.isEnabled = enabled
-        let symbolName = enabled ? "text.cursor" : "text.cursor"
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "EspansoX")
+            button.image = Self.makeMenuBarIcon()
             button.appearsDisabled = !enabled
         }
+    }
+
+    // Monochrome keycap + wand icon for the menu bar (18x18 template image)
+    private static func makeMenuBarIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: true) { rect in
+            NSColor.black.setFill()
+            NSColor.black.setStroke()
+
+            // Keycap body (bottom-left area)
+            let keycapOuter = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 7, width: 10, height: 8), xRadius: 2, yRadius: 2)
+            keycapOuter.lineWidth = 1.5
+            keycapOuter.stroke()
+
+            // Keycap top face (inset)
+            let keycapTop = NSBezierPath(roundedRect: NSRect(x: 2.5, y: 8.5, width: 6, height: 4), xRadius: 1, yRadius: 1)
+            keycapTop.fill()
+
+            // Wand shaft (diagonal from keycap to upper-right)
+            let wand = NSBezierPath()
+            wand.lineWidth = 2
+            wand.move(to: NSPoint(x: 8, y: 8))
+            wand.line(to: NSPoint(x: 15, y: 1))
+            wand.lineCapStyle = .round
+            wand.stroke()
+
+            // Sparkle at wand tip (small cross)
+            let sparkle = NSBezierPath()
+            sparkle.lineWidth = 1.2
+            sparkle.lineCapStyle = .round
+            sparkle.move(to: NSPoint(x: 13.5, y: 0.5))
+            sparkle.line(to: NSPoint(x: 17.5, y: 0.5))
+            sparkle.move(to: NSPoint(x: 15.5, y: -1.5))
+            sparkle.line(to: NSPoint(x: 15.5, y: 2.5))
+            sparkle.stroke()
+
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     func updateSecureInput(_ isSecure: Bool) {

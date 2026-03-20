@@ -4,6 +4,7 @@ set -euo pipefail
 APP_NAME="EspansoX"
 BUNDLE_ID="com.espansox.EspansoX"
 VERSION="1.0.0"
+ICON_SOURCE="tmp/espansox-logo-05-key-wand.png"
 
 # Build release
 swift build -c release
@@ -15,6 +16,17 @@ mkdir -p "${APP_DIR}/Resources"
 
 # Copy binary
 cp ".build/release/${APP_NAME}" "${APP_DIR}/MacOS/${APP_NAME}"
+
+# Generate .icns from PNG
+ICONSET_DIR=$(mktemp -d)/AppIcon.iconset
+mkdir -p "${ICONSET_DIR}"
+for size in 16 32 128 256 512; do
+    sips -z $size $size "${ICON_SOURCE}" --out "${ICONSET_DIR}/icon_${size}x${size}.png" >/dev/null
+    double=$((size * 2))
+    sips -z $double $double "${ICON_SOURCE}" --out "${ICONSET_DIR}/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "${ICONSET_DIR}" -o "${APP_DIR}/Resources/AppIcon.icns"
+rm -rf "$(dirname "${ICONSET_DIR}")"
 
 # Generate Info.plist
 cat > "${APP_DIR}/Info.plist" << EOF
@@ -34,6 +46,8 @@ cat > "${APP_DIR}/Info.plist" << EOF
     <string>${VERSION}</string>
     <key>CFBundleExecutable</key>
     <string>${APP_NAME}</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
