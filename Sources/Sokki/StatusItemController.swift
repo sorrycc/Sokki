@@ -85,9 +85,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func setLastError(_ error: String?) {
         self.lastError = error
         if let button = statusItem.button, let error {
-            button.toolTip = "EspansoX: \(error)"
+            button.toolTip = "Sokki: \(error)"
         } else {
-            statusItem.button?.toolTip = "EspansoX"
+            statusItem.button?.toolTip = "Sokki"
         }
     }
 
@@ -97,7 +97,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
-        let versionItem = NSMenuItem(title: "EspansoX v\(version)", action: nil, keyEquivalent: "")
+        let versionItem = NSMenuItem(title: "Sokki v\(version)", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
 

@@ -54,7 +54,7 @@ struct GeneralSettingsView: View {
                     Text("Double Control").tag("double_control")
                     Text("None").tag("none")
                 }
-                .help("Double-tap to toggle EspansoX on/off")
+                .help("Double-tap to toggle Sokki on/off")
             }
         }
         .formStyle(.grouped)

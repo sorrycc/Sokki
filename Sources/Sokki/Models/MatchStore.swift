@@ -56,6 +56,6 @@ final class MatchStore {
 }
 
 extension Notification.Name {
-    static let matchesDidChange = Notification.Name("EspansoX.matchesDidChange")
-    static let openSettings = Notification.Name("EspansoX.openSettings")
+    static let matchesDidChange = Notification.Name("Sokki.matchesDidChange")
+    static let openSettings = Notification.Name("Sokki.openSettings")
 }

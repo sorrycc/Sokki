@@ -61,7 +61,7 @@ final class KeystrokeMonitor {
                 onToggled: onToggle
             )
         }
-        tapThread.name = "EspansoX.EventTap"
+        tapThread.name = "Sokki.EventTap"
         tapThread.qualityOfService = .userInteractive
         self.tapThread = tapThread
         tapThread.start()

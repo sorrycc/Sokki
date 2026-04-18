@@ -13,7 +13,7 @@ final class ConfigLoader: Sendable {
 
     init() {
         self.configDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/espansox")
+            .appendingPathComponent(".config/sokki")
     }
 
     var configDirURL: URL { configDir }

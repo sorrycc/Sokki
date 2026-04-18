@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var debounceTimer: Timer?
 
     private let configDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/espansox")
+        .appendingPathComponent(".config/sokki")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Bootstrap config on first launch
@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         keystrokeMonitor.start()
 
-        Logger.shared.debug("EspansoX started")
+        Logger.shared.debug("Sokki started")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -97,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItemController.onShowLog = {
             let logFile = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".config/espansox/logs/espansox.log")
+                .appendingPathComponent(".config/sokki/logs/sokki.log")
             NSWorkspace.shared.open(logFile)
         }
 

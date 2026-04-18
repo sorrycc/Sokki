@@ -27,9 +27,9 @@ final class Logger: Sendable {
 
     private init() {
         let configDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/espansox/logs")
+            .appendingPathComponent(".config/sokki/logs")
         self.logDir = configDir
-        self.logFile = configDir.appendingPathComponent("espansox.log")
+        self.logFile = configDir.appendingPathComponent("sokki.log")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
     }
 
@@ -78,7 +78,7 @@ final class Logger: Sendable {
               let size = attrs[.size] as? Int,
               size >= maxSize else { return }
 
-        let backup = logDir.appendingPathComponent("espansox.log.1")
+        let backup = logDir.appendingPathComponent("sokki.log.1")
         try? FileManager.default.removeItem(at: backup)
         try? FileManager.default.moveItem(at: logFile, to: backup)
     }

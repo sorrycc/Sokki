@@ -7,7 +7,7 @@ final class Bootstrapper {
 
     init() {
         self.configDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/espansox")
+            .appendingPathComponent(".config/sokki")
     }
 
     func run() {
@@ -35,7 +35,7 @@ final class Bootstrapper {
 
     private func writeDefaultConfig() throws {
         let content = """
-        # EspansoX — Global Configuration
+        # Sokki — Global Configuration
         # See docs for all available options.
 
         enable: true
@@ -53,7 +53,7 @@ final class Bootstrapper {
 
     private func writeExampleMatches() throws {
         let content = """
-        # EspansoX — Example matches
+        # Sokki — Example matches
         # Edit this file or add more .yml files in this directory.
         # Changes are auto-detected and reloaded.
 
@@ -82,8 +82,8 @@ final class Bootstrapper {
 
     private func showWelcomeAlert() {
         let alert = NSAlert()
-        alert.messageText = "Welcome to EspansoX"
-        alert.informativeText = "Config files created at ~/.config/espansox/.\nEdit match/default.yml to add your triggers."
+        alert.messageText = "Welcome to Sokki"
+        alert.informativeText = "Config files created at ~/.config/sokki/.\nEdit match/default.yml to add your triggers."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open Config Folder")
         alert.addButton(withTitle: "OK")

@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "EspansoX",
+    name: "Sokki",
     platforms: [
         .macOS(.v14),
     ],
@@ -11,11 +11,11 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "EspansoX",
+            name: "Sokki",
             dependencies: [
                 "Yams",
             ],
-            path: "Sources/EspansoX",
+            path: "Sources/Sokki",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

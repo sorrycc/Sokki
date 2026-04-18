@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>EspansoX</string>
+    <string>Sokki</string>
     <key>CFBundleDisplayName</key>
-    <string>EspansoX</string>
+    <string>Sokki</string>
     <key>CFBundleIdentifier</key>
-    <string>com.espansox.EspansoX</string>
+    <string>com.sokki.Sokki</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
     <key>CFBundleExecutable</key>
-    <string>EspansoX</string>
+    <string>Sokki</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

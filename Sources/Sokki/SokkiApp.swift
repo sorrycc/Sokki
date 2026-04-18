@@ -1,12 +1,12 @@
 import SwiftUI
 
 @main
-struct EspansoXApp: App {
+struct SokkiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        Window("EspansoX Settings", id: "settings") {
+        Window("Sokki Settings", id: "settings") {
             SettingsView(store: appDelegate.matchStore)
         }
         .defaultSize(width: 550, height: 450)
@@ -22,7 +22,7 @@ struct EspansoXApp: App {
                 NSApp.activate(ignoringOtherApps: true)
                 // The window will be shown by SwiftUI's Window scene
                 for window in NSApp.windows {
-                    if window.title == "EspansoX Settings" {
+                    if window.title == "Sokki Settings" {
                         window.makeKeyAndOrderFront(nil)
                         return
                     }

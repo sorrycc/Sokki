@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="EspansoX"
-BUNDLE_ID="com.espansox.EspansoX"
+APP_NAME="Sokki"
+BUNDLE_ID="com.sokki.Sokki"
 VERSION="1.0.0"
-ICON_SOURCE="tmp/espansox-logo-05-key-wand.png"
+ICON_SOURCE="tmp/sokki-logo.png"
 
 # Build release
 swift build -c release
