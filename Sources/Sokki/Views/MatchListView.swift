@@ -5,6 +5,10 @@ struct MatchListView: View {
     @State private var selectedMatch: Match?
     @State private var showingEditor = false
     @State private var editingMatch: Match?
+    @State private var lastClickTime: Date?
+    @State private var lastClickedId: UUID?
+
+    private static let doubleClickInterval: TimeInterval = 0.5
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,18 +16,13 @@ struct MatchListView: View {
                 ForEach(store.matches) { match in
                     MatchRow(match: match)
                         .tag(match)
-                        .onTapGesture(count: 2) {
-                            let current = store.matches.first(where: { $0.id == match.id }) ?? match
-                            editingMatch = current
-                            showingEditor = true
-                        }
+                        .contentShape(Rectangle())
                         .onTapGesture {
-                            selectedMatch = match
+                            handleTap(match)
                         }
                         .contextMenu {
                             Button("Edit") {
-                                editingMatch = match
-                                showingEditor = true
+                                openEditor(for: match)
                             }
                             Button("Delete", role: .destructive) {
                                 store.remove(match)
@@ -41,6 +40,11 @@ struct MatchListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .onKeyPress(.return) {
+                guard let selected = selectedMatch else { return .ignored }
+                openEditor(for: selected)
+                return .handled
+            }
 
             HStack {
                 Button(action: {
@@ -75,6 +79,12 @@ struct MatchListView: View {
             }
             .padding(8)
         }
+        .onChange(of: showingEditor) { _, isShowing in
+            if !isShowing {
+                lastClickTime = nil
+                lastClickedId = nil
+            }
+        }
         .sheet(isPresented: $showingEditor) {
             MatchEditorView(
                 match: editingMatch,
@@ -91,6 +101,26 @@ struct MatchListView: View {
                 }
             )
         }
+    }
+
+    private func handleTap(_ match: Match) {
+        let now = Date()
+        if lastClickedId == match.id,
+           let last = lastClickTime,
+           now.timeIntervalSince(last) < Self.doubleClickInterval {
+            openEditor(for: match)
+            lastClickTime = nil
+            lastClickedId = nil
+        } else {
+            selectedMatch = match
+            lastClickTime = now
+            lastClickedId = match.id
+        }
+    }
+
+    private func openEditor(for match: Match) {
+        editingMatch = store.matches.first(where: { $0.id == match.id }) ?? match
+        showingEditor = true
     }
 }
 
