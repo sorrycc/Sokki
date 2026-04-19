@@ -36,39 +36,45 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    // Monochrome keycap + wand icon for the menu bar (18x18 template image)
+    // Monochrome keycap with tab glyph (⇥) for the menu bar (18x18 template image)
     private static func makeMenuBarIcon() -> NSImage {
         let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: true) { rect in
-            NSColor.black.setFill()
+        let image = NSImage(size: size, flipped: true) { _ in
             NSColor.black.setStroke()
+            NSColor.black.setFill()
 
-            // Keycap body (bottom-left area)
-            let keycapOuter = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 7, width: 10, height: 8), xRadius: 2, yRadius: 2)
-            keycapOuter.lineWidth = 1.5
-            keycapOuter.stroke()
+            // Keycap outline
+            let keycap = NSBezierPath(
+                roundedRect: NSRect(x: 1, y: 2.5, width: 16, height: 13),
+                xRadius: 2.5,
+                yRadius: 2.5
+            )
+            keycap.lineWidth = 1.25
+            keycap.stroke()
 
-            // Keycap top face (inset)
-            let keycapTop = NSBezierPath(roundedRect: NSRect(x: 2.5, y: 8.5, width: 6, height: 4), xRadius: 1, yRadius: 1)
-            keycapTop.fill()
+            // Arrow shaft
+            let shaft = NSBezierPath()
+            shaft.lineWidth = 1.25
+            shaft.lineCapStyle = .round
+            shaft.move(to: NSPoint(x: 3.5, y: 9))
+            shaft.line(to: NSPoint(x: 10, y: 9))
+            shaft.stroke()
 
-            // Wand shaft (diagonal from keycap to upper-right)
-            let wand = NSBezierPath()
-            wand.lineWidth = 2
-            wand.move(to: NSPoint(x: 8, y: 8))
-            wand.line(to: NSPoint(x: 15, y: 1))
-            wand.lineCapStyle = .round
-            wand.stroke()
+            // Arrowhead (filled triangle)
+            let head = NSBezierPath()
+            head.move(to: NSPoint(x: 10, y: 7))
+            head.line(to: NSPoint(x: 12.5, y: 9))
+            head.line(to: NSPoint(x: 10, y: 11))
+            head.close()
+            head.fill()
 
-            // Sparkle at wand tip (small cross)
-            let sparkle = NSBezierPath()
-            sparkle.lineWidth = 1.2
-            sparkle.lineCapStyle = .round
-            sparkle.move(to: NSPoint(x: 13.5, y: 0.5))
-            sparkle.line(to: NSPoint(x: 17.5, y: 0.5))
-            sparkle.move(to: NSPoint(x: 15.5, y: -1.5))
-            sparkle.line(to: NSPoint(x: 15.5, y: 2.5))
-            sparkle.stroke()
+            // Terminator bar
+            let bar = NSBezierPath()
+            bar.lineWidth = 1.25
+            bar.lineCapStyle = .round
+            bar.move(to: NSPoint(x: 14, y: 6))
+            bar.line(to: NSPoint(x: 14, y: 12))
+            bar.stroke()
 
             return true
         }
