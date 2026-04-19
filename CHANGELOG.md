@@ -7,6 +7,8 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+
+## 0.0.3 - 2026-04-19
 - Redesigned the menu-bar icon as a keycap with a tab glyph for better recognizability.
 - Keep the app alive when the settings window is closed.
 
