@@ -82,6 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopFSEventsWatcher()
     }
 
+    nonisolated func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
     // MARK: - Config
 
     private func applyConfig() {
