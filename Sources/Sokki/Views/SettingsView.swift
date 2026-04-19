@@ -19,6 +19,15 @@ struct SettingsView: View {
 struct GeneralSettingsView: View {
     @Bindable var store: MatchStore
     @State private var launchAtLogin = false
+    @AppStorage("SUEnableAutomaticChecks") private var automaticallyCheckForUpdates = true
+
+    private var updatesConfigured: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil
+    }
+
+    private var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+    }
 
     var body: some View {
         Form {
@@ -55,6 +64,23 @@ struct GeneralSettingsView: View {
                     Text("None").tag("none")
                 }
                 .help("Double-tap to toggle Sokki on/off")
+            }
+
+            if updatesConfigured {
+                Section("Updates") {
+                    HStack {
+                        Text("Current version")
+                        Spacer()
+                        Text(currentVersion).foregroundStyle(.secondary)
+                    }
+                    Toggle("Automatically check for updates", isOn: $automaticallyCheckForUpdates)
+                    HStack {
+                        Spacer()
+                        Button("Check for Updates…") {
+                            NotificationCenter.default.post(name: .checkForUpdates, object: nil)
+                        }
+                    }
+                }
             }
         }
         .formStyle(.grouped)

@@ -58,4 +58,5 @@ final class MatchStore {
 extension Notification.Name {
     static let matchesDidChange = Notification.Name("Sokki.matchesDidChange")
     static let openSettings = Notification.Name("Sokki.openSettings")
+    static let checkForUpdates = Notification.Name("Sokki.checkForUpdates")
 }

@@ -13,6 +13,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     var onOpenConfigFolder: (() -> Void)?
     var onShowLog: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onCheckForUpdates: (() -> Void)?
     var onQuit: (() -> Void)?
 
     override init() {
@@ -142,6 +143,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         showLogItem.target = self
         menu.addItem(showLogItem)
 
+        // Only show "Check for Updates…" in release bundles that carry SUFeedURL.
+        if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil {
+            let checkUpdatesItem = NSMenuItem(
+                title: "Check for Updates…",
+                action: #selector(checkForUpdates),
+                keyEquivalent: ""
+            )
+            checkUpdatesItem.target = self
+            menu.addItem(checkUpdatesItem)
+        }
+
         menu.addItem(.separator())
 
         let settingsItem = NSMenuItem(
@@ -179,6 +191,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openSettings() {
         onOpenSettings?()
+    }
+
+    @objc private func checkForUpdates() {
+        onCheckForUpdates?()
     }
 
     @objc private func quitApp() {

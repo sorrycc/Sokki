@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let bootstrapper = Bootstrapper()
     private var fsEventStream: FSEventStreamRef?
     private var debounceTimer: Timer?
+    private var updater: UpdaterService?
 
     private let configDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/sokki")
@@ -19,6 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Check accessibility
         checkAccessibilityPermission()
+
+        // Sparkle is only wired up for release bundles that carry SUFeedURL in Info.plist —
+        // `swift run` dev builds skip the init to avoid the assertion crash.
+        if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil {
+            updater = UpdaterService()
+        }
 
         // Setup status item
         statusItemController = StatusItemController()
@@ -46,6 +53,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .matchesDidChange,
             object: nil
         )
+
+        // Observe "Check for Updates" requests (posted from menu + Settings)
+        NotificationCenter.default.addObserver(
+            forName: .checkForUpdates,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updater?.checkForUpdates()
+            }
+        }
 
         // Start monitoring
         keystrokeMonitor.onSecureInputChanged = { [weak self] isSecure in
@@ -103,6 +121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItemController.onOpenSettings = {
             NotificationCenter.default.post(name: .openSettings, object: nil)
+        }
+
+        statusItemController.onCheckForUpdates = {
+            NotificationCenter.default.post(name: .checkForUpdates, object: nil)
         }
 
         statusItemController.onQuit = {
