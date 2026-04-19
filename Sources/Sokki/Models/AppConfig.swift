@@ -1,6 +1,6 @@
 import Foundation
 
-struct AppConfig: Codable, Sendable {
+struct AppConfig: Codable, Sendable, Equatable {
     var isEnabled: Bool = true
     var clipboardThreshold: Int = 50
     var injectDelay: Int = 0

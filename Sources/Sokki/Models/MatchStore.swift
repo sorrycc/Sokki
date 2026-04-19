@@ -8,6 +8,7 @@ final class MatchStore {
     var config: AppConfig = AppConfig()
     var lastError: String?
 
+    private var knownFiles: Set<String> = []
     private let configLoader = ConfigLoader()
 
     func loadAll() {
@@ -15,6 +16,7 @@ final class MatchStore {
         self.matches = result.matches
         self.config = result.config
         self.lastError = result.error
+        self.knownFiles = result.loadedFiles
 
         if let error = result.error {
             Logger.shared.error("Config load error: \(error)")
@@ -29,13 +31,17 @@ final class MatchStore {
     }
 
     func add(_ match: Match) {
-        matches.append(match)
+        var newMatch = match
+        if newMatch.sourceFile == nil { newMatch.sourceFile = "default.yml" }
+        matches.append(newMatch)
         saveMatches()
     }
 
     func update(_ match: Match) {
         guard let index = matches.firstIndex(where: { $0.id == match.id }) else { return }
-        matches[index] = match
+        var updated = match
+        updated.sourceFile = matches[index].sourceFile
+        matches[index] = updated
         saveMatches()
     }
 
@@ -49,8 +55,13 @@ final class MatchStore {
         saveMatches()
     }
 
+    func saveConfig() {
+        configLoader.saveConfig(config)
+    }
+
     private func saveMatches() {
-        configLoader.saveMatches(matches)
+        configLoader.saveMatches(matches, knownFiles: knownFiles)
+        knownFiles.formUnion(matches.compactMap(\.sourceFile))
         NotificationCenter.default.post(name: .matchesDidChange, object: nil)
     }
 }

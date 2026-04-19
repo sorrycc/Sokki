@@ -88,6 +88,9 @@ struct GeneralSettingsView: View {
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+        .onChange(of: store.config) { _, _ in
+            store.saveConfig()
+        }
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {
