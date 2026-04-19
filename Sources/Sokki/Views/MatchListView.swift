@@ -12,6 +12,14 @@ struct MatchListView: View {
                 ForEach(store.matches) { match in
                     MatchRow(match: match)
                         .tag(match)
+                        .onTapGesture(count: 2) {
+                            let current = store.matches.first(where: { $0.id == match.id }) ?? match
+                            editingMatch = current
+                            showingEditor = true
+                        }
+                        .onTapGesture {
+                            selectedMatch = match
+                        }
                         .contextMenu {
                             Button("Edit") {
                                 editingMatch = match
@@ -40,6 +48,7 @@ struct MatchListView: View {
                     showingEditor = true
                 }) {
                     Image(systemName: "plus")
+                        .frame(width: 22, height: 22)
                 }
                 .help("Add match")
 
@@ -50,6 +59,7 @@ struct MatchListView: View {
                     }
                 }) {
                     Image(systemName: "minus")
+                        .frame(width: 22, height: 22)
                 }
                 .disabled(selectedMatch == nil)
                 .help("Remove match")
