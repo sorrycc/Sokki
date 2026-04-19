@@ -19,11 +19,24 @@ struct SokkiApp: App {
             queue: .main
         ) { _ in
             MainActor.assumeIsolated {
+                // macOS Tahoe tightened activation for .accessory apps — flip to
+                // .regular so the app can actually become frontmost and the window
+                // can take key status (reverted on willClose below).
+                NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
-                // The window will be shown by SwiftUI's Window scene
                 for window in NSApp.windows {
                     if window.title == "Sokki Settings" {
                         window.makeKeyAndOrderFront(nil)
+                        window.orderFrontRegardless()
+                        NotificationCenter.default.addObserver(
+                            forName: NSWindow.willCloseNotification,
+                            object: window,
+                            queue: .main
+                        ) { _ in
+                            MainActor.assumeIsolated {
+                                _ = NSApp.setActivationPolicy(.accessory)
+                            }
+                        }
                         return
                     }
                 }
