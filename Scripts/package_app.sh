@@ -1,35 +1,28 @@
 #!/bin/bash
 set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 APP_NAME="Sokki"
 BUNDLE_ID="com.sokki.Sokki"
-VERSION="1.0.0"
-ICON_SOURCE="tmp/sokki-logo.png"
+VERSION="${VERSION:-$(cat VERSION)}"
+SHORT_VERSION="${VERSION}"
+BUILD_DIR=".build/release"
+APP_BUNDLE="${APP_NAME}.app"
+CONTENTS="${APP_BUNDLE}/Contents"
+SIGN_IDENTITY="Developer ID Application: chen cheng (KU8S35TEW8)"
 
-# Build release
+echo "Building ${APP_NAME} ${VERSION} (release)..."
 swift build -c release
 
-# Create app bundle structure
-APP_DIR="${APP_NAME}.app/Contents"
-mkdir -p "${APP_DIR}/MacOS"
-mkdir -p "${APP_DIR}/Resources"
+echo "Creating app bundle..."
+rm -rf "${APP_BUNDLE}"
+mkdir -p "${CONTENTS}/MacOS"
+mkdir -p "${CONTENTS}/Resources"
 
-# Copy binary
-cp ".build/release/${APP_NAME}" "${APP_DIR}/MacOS/${APP_NAME}"
+cp "${BUILD_DIR}/${APP_NAME}" "${CONTENTS}/MacOS/${APP_NAME}"
+cp "Resources/AppIcon.icns" "${CONTENTS}/Resources/AppIcon.icns"
 
-# Generate .icns from PNG
-ICONSET_DIR=$(mktemp -d)/AppIcon.iconset
-mkdir -p "${ICONSET_DIR}"
-for size in 16 32 128 256 512; do
-    sips -z $size $size "${ICON_SOURCE}" --out "${ICONSET_DIR}/icon_${size}x${size}.png" >/dev/null
-    double=$((size * 2))
-    sips -z $double $double "${ICON_SOURCE}" --out "${ICONSET_DIR}/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "${ICONSET_DIR}" -o "${APP_DIR}/Resources/AppIcon.icns"
-rm -rf "$(dirname "${ICONSET_DIR}")"
-
-# Generate Info.plist
-cat > "${APP_DIR}/Info.plist" << EOF
+cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -43,25 +36,29 @@ cat > "${APP_DIR}/Info.plist" << EOF
     <key>CFBundleVersion</key>
     <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>${VERSION}</string>
+    <string>${SHORT_VERSION}</string>
     <key>CFBundleExecutable</key>
     <string>${APP_NAME}</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
 </plist>
-EOF
+PLIST
 
-# Code sign
-codesign --force --sign - "${APP_NAME}.app"
+echo "Code signing with Developer ID + hardened runtime..."
+codesign --force --options runtime --timestamp \
+         --sign "${SIGN_IDENTITY}" \
+         "${APP_BUNDLE}"
 
-echo "Built ${APP_NAME}.app successfully"
-echo "Run: open ${APP_NAME}.app"
+echo "Verifying signature..."
+codesign --verify --strict "${APP_BUNDLE}"
+
+echo "Done! ${APP_BUNDLE} is signed (not yet notarized)."

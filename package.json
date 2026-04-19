@@ -1,0 +1,7 @@
+{
+  "name": "sokki",
+  "private": true,
+  "scripts": {
+    "release": "./Scripts/release.ts"
+  }
+}
