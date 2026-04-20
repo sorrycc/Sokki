@@ -8,7 +8,7 @@ struct AppConfig: Codable, Sendable, Equatable {
     var preserveClipboard: Bool = true
     var restoreClipboardDelay: Int = 100
     var logLevel: String = "error"
-    var toggleShortcut: String = "double_option"
+    var toggleShortcut: String = "none"
 
     enum CodingKeys: String, CodingKey {
         case isEnabled = "enable"
@@ -32,6 +32,6 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.preserveClipboard = (try? container.decode(Bool.self, forKey: .preserveClipboard)) ?? true
         self.restoreClipboardDelay = (try? container.decode(Int.self, forKey: .restoreClipboardDelay)) ?? 100
         self.logLevel = (try? container.decode(String.self, forKey: .logLevel)) ?? "error"
-        self.toggleShortcut = (try? container.decode(String.self, forKey: .toggleShortcut)) ?? "double_option"
+        self.toggleShortcut = (try? container.decode(String.self, forKey: .toggleShortcut)) ?? "none"
     }
 }

@@ -13,7 +13,7 @@ final class TapContext: @unchecked Sendable {
         var suppressMatching = false
         var pasteSuppressionUntil: Date?
         var isEnabled = true
-        var toggleShortcut: String = "double_option"
+        var toggleShortcut: String = "none"
         var lastModifierTapTime: Date?
         var lastModifierKey: CGEventFlags?
     }
