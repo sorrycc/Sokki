@@ -7,6 +7,7 @@ struct MatchListView: View {
     @State private var editingMatch: Match?
     @State private var lastClickTime: Date?
     @State private var lastClickedId: UUID?
+    @State private var pendingDeletion: Match?
 
     private static let doubleClickInterval: TimeInterval = 0.5
 
@@ -25,7 +26,7 @@ struct MatchListView: View {
                                 openEditor(for: match)
                             }
                             Button("Delete", role: .destructive) {
-                                store.remove(match)
+                                pendingDeletion = match
                             }
                             Divider()
                             Button(match.isEnabled ? "Disable" : "Enable") {
@@ -58,8 +59,7 @@ struct MatchListView: View {
 
                 Button(action: {
                     if let match = selectedMatch {
-                        store.remove(match)
-                        selectedMatch = nil
+                        pendingDeletion = match
                     }
                 }) {
                     Image(systemName: "minus")
@@ -100,6 +100,25 @@ struct MatchListView: View {
                     showingEditor = false
                 }
             )
+        }
+        .alert(
+            "Delete Match?",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            presenting: pendingDeletion
+        ) { match in
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                guard store.matches.contains(where: { $0.id == match.id }) else { return }
+                store.remove(match)
+                if selectedMatch?.id == match.id {
+                    selectedMatch = nil
+                }
+            }
+        } message: { match in
+            Text("The match \"\(match.trigger)\" will be permanently deleted. This action cannot be undone.")
         }
     }
 
