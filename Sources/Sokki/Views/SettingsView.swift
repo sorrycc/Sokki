@@ -66,16 +66,6 @@ struct GeneralSettingsView: View {
                 .help("Double-tap to toggle Sokki on/off")
             }
 
-            Section("HUD Shortcut") {
-                Picker("Recent Activity HUD", selection: $store.config.hudShortcut) {
-                    Text("Double Option").tag("double_option")
-                    Text("Double Shift").tag("double_shift")
-                    Text("Double Control").tag("double_control")
-                    Text("None").tag("none")
-                }
-                .help("Double-tap to open the Recent Activity HUD. HUD wins over Toggle if both set to same chord.")
-            }
-
             Section("Palette Shortcut") {
                 Picker("Open palette", selection: $store.config.paletteShortcut) {
                     Text("⌥ Space").tag("opt+space")
