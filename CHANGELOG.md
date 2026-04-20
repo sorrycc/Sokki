@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 0.0.5 - 2026-04-20
 - Show source file per row and in the editor; filter by file; search triggers and replacements; delete selection with the Delete or Backspace key.
 - Added a Recent Activity HUD: double-tap the configured chord to open a floating panel listing recent matches and blocked events (too-soon after paste, or while Sokki is disabled); captured text is masked by default and revealed per row; "Create match from this" opens the editor pre-filled.
 - Added a Spotlight-style trigger palette for fuzzy-searching and running matches from a floating input.
