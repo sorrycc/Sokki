@@ -10,7 +10,7 @@ struct AppConfig: Codable, Sendable, Equatable {
     var logLevel: String = "error"
     var toggleShortcut: String = "none"
     var hudShortcut: String = "none"
-    var paletteShortcut: String = "opt+space"
+    var paletteShortcut: String = "none"
 
     enum CodingKeys: String, CodingKey {
         case isEnabled = "enable"
@@ -38,6 +38,6 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.logLevel = (try? container.decode(String.self, forKey: .logLevel)) ?? "error"
         self.toggleShortcut = (try? container.decode(String.self, forKey: .toggleShortcut)) ?? "none"
         self.hudShortcut = (try? container.decode(String.self, forKey: .hudShortcut)) ?? "none"
-        self.paletteShortcut = (try? container.decode(String.self, forKey: .paletteShortcut)) ?? "opt+space"
+        self.paletteShortcut = (try? container.decode(String.self, forKey: .paletteShortcut)) ?? "none"
     }
 }
