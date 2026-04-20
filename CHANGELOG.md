@@ -8,6 +8,9 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 - Show source file per row and in the editor; filter by file; search triggers and replacements; delete selection with the Delete or Backspace key.
 - Added a Recent Activity HUD: double-tap the configured chord to open a floating panel listing recent matches and blocked events (too-soon after paste, or while Sokki is disabled); captured text is masked by default and revealed per row; "Create match from this" opens the editor pre-filled.
+- Added a Spotlight-style trigger palette for fuzzy-searching and running matches from a floating input.
+- Default the toggle and palette shortcuts to none so new users don't trigger them accidentally.
+- Hid the HUD shortcut setting until it works correctly.
 
 ## 0.0.4 - 2026-04-19
 - Fixed settings window activation on macOS Tahoe.
