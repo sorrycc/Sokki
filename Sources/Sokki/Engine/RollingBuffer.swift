@@ -44,4 +44,6 @@ struct RollingBuffer: Sendable {
     }
 
     var currentCount: Int { count }
+
+    func toString() -> String { tail(count) }
 }

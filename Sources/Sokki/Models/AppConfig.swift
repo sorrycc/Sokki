@@ -9,6 +9,8 @@ struct AppConfig: Codable, Sendable, Equatable {
     var restoreClipboardDelay: Int = 100
     var logLevel: String = "error"
     var toggleShortcut: String = "none"
+    var hudShortcut: String = "none"
+    var paletteShortcut: String = "opt+space"
 
     enum CodingKeys: String, CodingKey {
         case isEnabled = "enable"
@@ -19,6 +21,8 @@ struct AppConfig: Codable, Sendable, Equatable {
         case restoreClipboardDelay = "restore_clipboard_delay"
         case logLevel = "log_level"
         case toggleShortcut = "toggle_shortcut"
+        case hudShortcut = "hud_shortcut"
+        case paletteShortcut = "palette_shortcut"
     }
 
     init() {}
@@ -33,5 +37,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.restoreClipboardDelay = (try? container.decode(Int.self, forKey: .restoreClipboardDelay)) ?? 100
         self.logLevel = (try? container.decode(String.self, forKey: .logLevel)) ?? "error"
         self.toggleShortcut = (try? container.decode(String.self, forKey: .toggleShortcut)) ?? "none"
+        self.hudShortcut = (try? container.decode(String.self, forKey: .hudShortcut)) ?? "none"
+        self.paletteShortcut = (try? container.decode(String.self, forKey: .paletteShortcut)) ?? "opt+space"
     }
 }

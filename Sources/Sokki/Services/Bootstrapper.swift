@@ -46,6 +46,7 @@ final class Bootstrapper {
         restore_clipboard_delay: 100     # ms
         log_level: "error"               # "error" (default) or "debug"
         toggle_shortcut: "none"          # "none" (default), "double_option", "double_shift", or "double_control"
+        hud_shortcut: "none"             # "none" (default), "double_option", "double_shift", or "double_control"
         """
         let url = configDir.appendingPathComponent("config/default.yml")
         try content.write(to: url, atomically: true, encoding: .utf8)

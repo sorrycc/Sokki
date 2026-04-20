@@ -3,6 +3,7 @@ import SwiftUI
 struct MatchEditorView: View {
     @State private var trigger: String
     @State private var replace: String
+    @State private var label: String
     @State private var isEnabled: Bool
     @State private var sourceFile: String
     private let existingId: UUID?
@@ -15,11 +16,13 @@ struct MatchEditorView: View {
         match: Match? = nil,
         availableFiles: [String],
         prefillSourceFile: String,
+        initialTrigger: String? = nil,
         onSave: @escaping (Match) -> Void,
         onCancel: @escaping () -> Void
     ) {
-        self._trigger = State(initialValue: match?.trigger ?? ":")
+        self._trigger = State(initialValue: match?.trigger ?? initialTrigger ?? ":")
         self._replace = State(initialValue: match?.replace ?? "")
+        self._label = State(initialValue: match?.label ?? "")
         self._isEnabled = State(initialValue: match?.isEnabled ?? true)
         self._sourceFile = State(initialValue: match?.sourceFile ?? prefillSourceFile)
         self.existingId = match?.id
@@ -34,6 +37,9 @@ struct MatchEditorView: View {
                 .font(.headline)
 
             Form {
+                TextField("Label (optional)", text: $label)
+                    .help("Friendly name shown in the palette. Leave blank to fall back to the trigger.")
+
                 TextField("Trigger", text: $trigger)
                     .font(.system(.body, design: .monospaced))
                     .help("The keyword that triggers expansion (e.g., :hello)")
@@ -65,10 +71,12 @@ struct MatchEditorView: View {
                 Spacer()
 
                 Button("Save") {
+                    let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
                     let match = Match(
                         id: existingId ?? UUID(),
                         trigger: trigger,
                         replace: replace,
+                        label: trimmedLabel.isEmpty ? nil : trimmedLabel,
                         isEnabled: isEnabled,
                         sourceFile: sourceFile
                     )

@@ -14,8 +14,33 @@ final class TapContext: @unchecked Sendable {
         var pasteSuppressionUntil: Date?
         var isEnabled = true
         var toggleShortcut: String = "none"
+        var hudShortcut: String = "none"
         var lastModifierTapTime: Date?
         var lastModifierKey: CGEventFlags?
+        var hasEmittedTooSoonForCurrentPaste = false
+        var hasEmittedDisabledSinceLastEnable = false
+        var paletteChord: PaletteChord?
+    }
+
+    struct PaletteChord: Sendable, Equatable {
+        let keyCode: UInt16
+        let modifiers: CGEventFlags
+
+        static func parse(_ string: String) -> PaletteChord? {
+            let spaceKeyCode: UInt16 = 0x31 // kVK_Space
+            switch string {
+            case "opt+space":
+                return PaletteChord(keyCode: spaceKeyCode, modifiers: .maskAlternate)
+            case "ctrl+space":
+                return PaletteChord(keyCode: spaceKeyCode, modifiers: .maskControl)
+            case "ctrl+opt+space":
+                return PaletteChord(keyCode: spaceKeyCode, modifiers: [.maskControl, .maskAlternate])
+            case "ctrl+shift+space":
+                return PaletteChord(keyCode: spaceKeyCode, modifiers: [.maskControl, .maskShift])
+            default:
+                return nil
+            }
+        }
     }
 
     struct FeedResult: Sendable {
@@ -28,22 +53,20 @@ final class TapContext: @unchecked Sendable {
         case undo(restoreTrigger: String)
         case secureInputChanged(isSecure: Bool)
         case toggled(isEnabled: Bool)
+        case hudRequested
+        case blockedTooSoon(bufferSnapshot: String)
+        case blockedDisabled(bufferSnapshot: String)
     }
 
     func feed(character: Character, keyCode: UInt16, modifierFlags: CGEventFlags) -> FeedResult {
         lock.withLock { state in
-            // Check suppression
+            // Self-echo guard for our own injection — never surfaces to HUD.
             if state.suppressMatching {
                 return FeedResult(action: .none)
             }
 
-            // Check paste suppression (Cmd+V)
-            if let until = state.pasteSuppressionUntil, Date() < until {
-                return FeedResult(action: .none)
-            }
-            state.pasteSuppressionUntil = nil
-
-            // Check secure input
+            // Secure input FIRST — a secure frame hard-drops everything below,
+            // guaranteeing no HUD event ever carries secure-field keystrokes.
             let secureTransition = state.secureInput.check()
             switch secureTransition {
             case .enteredSecure:
@@ -60,12 +83,28 @@ final class TapContext: @unchecked Sendable {
                 break
             }
 
-            // Check if disabled
+            // Paste-too-soon window, guaranteed non-secure here.
+            if let until = state.pasteSuppressionUntil, Date() < until {
+                if !state.hasEmittedTooSoonForCurrentPaste {
+                    state.hasEmittedTooSoonForCurrentPaste = true
+                    let snapshot = state.buffer.toString() + String(character)
+                    return FeedResult(action: .blockedTooSoon(bufferSnapshot: snapshot))
+                }
+                return FeedResult(action: .none)
+            }
+            state.pasteSuppressionUntil = nil
+
+            // Disabled, guaranteed non-secure and not-paste-blocked.
             guard state.isEnabled else {
+                if !state.hasEmittedDisabledSinceLastEnable {
+                    state.hasEmittedDisabledSinceLastEnable = true
+                    let snapshot = state.buffer.toString() + String(character)
+                    return FeedResult(action: .blockedDisabled(bufferSnapshot: snapshot))
+                }
                 return FeedResult(action: .none)
             }
 
-            // Handle backspace
+            // Handle backspace.
             let backspaceKeyCode: UInt16 = 0x33
             if keyCode == backspaceKeyCode {
                 let undoResult = state.undoManager.handleBackspace()
@@ -80,13 +119,13 @@ final class TapContext: @unchecked Sendable {
                 return FeedResult(action: .none)
             }
 
-            // Non-backspace key clears undo tracking
+            // Non-backspace key clears undo tracking.
             state.undoManager.handleNonBackspaceKey()
 
-            // Append to buffer
+            // Append to buffer.
             state.buffer.append(character)
 
-            // Feed to trie matcher
+            // Feed to trie matcher.
             if let result = state.matcher.feed(character) {
                 return FeedResult(action: .matched(
                     match: result.match,
@@ -94,57 +133,77 @@ final class TapContext: @unchecked Sendable {
                 ))
             }
 
+            // Pure typo / still-typing: intentionally not a HUD event (AC10).
             return FeedResult(action: .none)
         }
     }
 
     func handlePasteDetected() {
         lock.withLock { state in
+            // Only re-arm the debounce flag when opening a fresh window; a second
+            // Cmd+V inside the still-active window must not emit a second "Too soon"
+            // row for the same paste.
+            if state.pasteSuppressionUntil == nil || Date() >= state.pasteSuppressionUntil! {
+                state.hasEmittedTooSoonForCurrentPaste = false
+            }
             state.pasteSuppressionUntil = Date().addingTimeInterval(0.2)
         }
     }
 
     func handleModifierTap(flags: CGEventFlags) -> FeedResult {
         lock.withLock { state in
-            guard state.toggleShortcut != "none" else {
-                return FeedResult(action: .none)
-            }
-
-            let targetFlag: CGEventFlags
-            switch state.toggleShortcut {
-            case "double_option":
-                targetFlag = .maskAlternate
-            case "double_shift":
-                targetFlag = .maskShift
-            case "double_control":
-                targetFlag = .maskControl
-            default:
-                return FeedResult(action: .none)
-            }
-
-            // Check if the target modifier is the only one pressed
             let modifierMask: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
             let activeModifiers = flags.intersection(modifierMask)
-            guard activeModifiers == targetFlag else {
+
+            func targetFlag(for shortcut: String) -> CGEventFlags? {
+                switch shortcut {
+                case "double_option":  return .maskAlternate
+                case "double_shift":   return .maskShift
+                case "double_control": return .maskControl
+                default:               return nil
+                }
+            }
+
+            let hudFlag = targetFlag(for: state.hudShortcut)
+            let toggleFlag = targetFlag(for: state.toggleShortcut)
+
+            // HUD wins on collision — new feature must not silently do nothing when
+            // the user misconfigures both chords to the same value.
+            let resolved: (kind: String, flag: CGEventFlags)?
+            if let h = hudFlag, activeModifiers == h {
+                resolved = ("hud", h)
+            } else if let t = toggleFlag, activeModifiers == t {
+                resolved = ("toggle", t)
+            } else {
                 state.lastModifierTapTime = nil
                 return FeedResult(action: .none)
             }
 
+            let r = resolved!
             let now = Date()
             if let lastTime = state.lastModifierTapTime,
-               state.lastModifierKey == targetFlag,
+               state.lastModifierKey == r.flag,
                now.timeIntervalSince(lastTime) < 0.3 {
-                // Double tap detected
                 state.lastModifierTapTime = nil
                 state.lastModifierKey = nil
-                state.isEnabled.toggle()
-                state.buffer.clear()
-                state.matcher.reset()
-                return FeedResult(action: .toggled(isEnabled: state.isEnabled))
+                switch r.kind {
+                case "hud":
+                    return FeedResult(action: .hudRequested)
+                case "toggle":
+                    state.isEnabled.toggle()
+                    state.buffer.clear()
+                    state.matcher.reset()
+                    if state.isEnabled {
+                        state.hasEmittedDisabledSinceLastEnable = false
+                    }
+                    return FeedResult(action: .toggled(isEnabled: state.isEnabled))
+                default:
+                    return FeedResult(action: .none)
+                }
             }
 
             state.lastModifierTapTime = now
-            state.lastModifierKey = targetFlag
+            state.lastModifierKey = r.flag
             return FeedResult(action: .none)
         }
     }
@@ -171,8 +230,23 @@ final class TapContext: @unchecked Sendable {
 
     func updateConfig(_ config: AppConfig) {
         lock.withLock { state in
+            let wasDisabled = !state.isEnabled
             state.isEnabled = config.isEnabled
             state.toggleShortcut = config.toggleShortcut
+            state.hudShortcut = config.hudShortcut
+            state.paletteChord = PaletteChord.parse(config.paletteShortcut)
+            if wasDisabled && state.isEnabled {
+                state.hasEmittedDisabledSinceLastEnable = false
+            }
+        }
+    }
+
+    func handlePaletteChord(keyCode: UInt16, flags: CGEventFlags) -> Bool {
+        lock.withLock { state in
+            guard let chord = state.paletteChord else { return false }
+            let modifierMask: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
+            let activeModifiers = flags.intersection(modifierMask)
+            return keyCode == chord.keyCode && activeModifiers == chord.modifiers
         }
     }
 

@@ -17,12 +17,12 @@ struct MatchListView: View {
 
     private enum EditorRequest: Identifiable, Equatable {
         case edit(Match)
-        case new(prefillSourceFile: String)
+        case new(prefillSourceFile: String, initialTrigger: String? = nil)
 
         var id: String {
             switch self {
-            case .edit(let m): return "edit-\(m.id.uuidString)"
-            case .new:         return "new"
+            case .edit(let m):                  return "edit-\(m.id.uuidString)"
+            case .new(let f, let t):            return "new-\(f)-\(t ?? "")"
             }
         }
     }
@@ -37,6 +37,11 @@ struct MatchListView: View {
                     lastClickTime = nil
                     lastClickedId = nil
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openMatchEditor)) { note in
+                let trigger = (note.userInfo?["trigger"] as? String) ?? ""
+                guard !trigger.isEmpty else { return }
+                sheetRequest = .new(prefillSourceFile: resolvedPrefill(), initialTrigger: trigger)
             }
             .sheet(item: $sheetRequest, content: sheetContent)
             .alert(
@@ -82,11 +87,12 @@ struct MatchListView: View {
                 },
                 onCancel: { sheetRequest = nil }
             )
-        case .new(let prefill):
+        case .new(let prefill, let initial):
             MatchEditorView(
                 match: nil,
                 availableFiles: store.availableSourceFiles,
                 prefillSourceFile: prefill,
+                initialTrigger: initial,
                 onSave: { m in
                     store.add(m)
                     sheetRequest = nil

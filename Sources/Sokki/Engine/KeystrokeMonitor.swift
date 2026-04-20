@@ -9,14 +9,17 @@ final class KeystrokeMonitor {
     private var tapThread: Thread?
     private var isRunning = false
 
-    private let variableRenderer = VariableRenderer()
-    private let textInjector = TextInjector()
+    let variableRenderer = VariableRenderer()
+    let textInjector = TextInjector()
 
     // Stored as nonisolated-accessible via the TapState wrapper
     private let tapState = TapState()
 
     var onSecureInputChanged: ((Bool) -> Void)?
     var onToggled: ((Bool) -> Void)?
+    var onHUDRequested: (() -> Void)?
+    var onHUDEvent: ((HUDEvent) -> Void)?
+    var onPaletteToggleRequested: (() -> Void)?
 
     func start() {
         guard !isRunning else { return }
@@ -50,6 +53,21 @@ final class KeystrokeMonitor {
                 self?.onToggled?(enabled)
             }
         }
+        let onHUDRequest: @Sendable () -> Void = { [weak self] in
+            DispatchQueue.main.async {
+                self?.onHUDRequested?()
+            }
+        }
+        let onHUDEv: @Sendable (HUDEvent) -> Void = { [weak self] event in
+            DispatchQueue.main.async {
+                self?.onHUDEvent?(event)
+            }
+        }
+        let onPaletteToggle: @Sendable () -> Void = { [weak self] in
+            DispatchQueue.main.async {
+                self?.onPaletteToggleRequested?()
+            }
+        }
 
         let tapThread = Thread {
             KeystrokeMonitor.runEventTap(
@@ -58,7 +76,10 @@ final class KeystrokeMonitor {
                 onMatch: onMatch,
                 onUndo: onUndo,
                 onSecureInputChanged: onSecure,
-                onToggled: onToggle
+                onToggled: onToggle,
+                onHUDRequested: onHUDRequest,
+                onHUDEvent: onHUDEv,
+                onPaletteToggleRequested: onPaletteToggle
             )
         }
         tapThread.name = "Sokki.EventTap"
@@ -110,7 +131,10 @@ final class KeystrokeMonitor {
         onMatch: @escaping @Sendable (Match, Int) -> Void,
         onUndo: @escaping @Sendable (String) -> Void,
         onSecureInputChanged: @escaping @Sendable (Bool) -> Void,
-        onToggled: @escaping @Sendable (Bool) -> Void
+        onToggled: @escaping @Sendable (Bool) -> Void,
+        onHUDRequested: @escaping @Sendable () -> Void,
+        onHUDEvent: @escaping @Sendable (HUDEvent) -> Void,
+        onPaletteToggleRequested: @escaping @Sendable () -> Void
     ) {
         let eventMask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
@@ -121,7 +145,10 @@ final class KeystrokeMonitor {
             onMatch: onMatch,
             onUndo: onUndo,
             onSecureInputChanged: onSecureInputChanged,
-            onToggled: onToggled
+            onToggled: onToggled,
+            onHUDRequested: onHUDRequested,
+            onHUDEvent: onHUDEvent,
+            onPaletteToggleRequested: onPaletteToggleRequested
         )
         let handlerPtr = Unmanaged.passRetained(handler).toOpaque()
 
@@ -187,34 +214,47 @@ private final class TapHandler: @unchecked Sendable {
     let onUndo: @Sendable (String) -> Void
     let onSecureInputChanged: @Sendable (Bool) -> Void
     let onToggled: @Sendable (Bool) -> Void
+    let onHUDRequested: @Sendable () -> Void
+    let onHUDEvent: @Sendable (HUDEvent) -> Void
+    let onPaletteToggleRequested: @Sendable () -> Void
 
     init(
         context: TapContext,
         onMatch: @escaping @Sendable (Match, Int) -> Void,
         onUndo: @escaping @Sendable (String) -> Void,
         onSecureInputChanged: @escaping @Sendable (Bool) -> Void,
-        onToggled: @escaping @Sendable (Bool) -> Void
+        onToggled: @escaping @Sendable (Bool) -> Void,
+        onHUDRequested: @escaping @Sendable () -> Void,
+        onHUDEvent: @escaping @Sendable (HUDEvent) -> Void,
+        onPaletteToggleRequested: @escaping @Sendable () -> Void
     ) {
         self.context = context
         self.onMatch = onMatch
         self.onUndo = onUndo
         self.onSecureInputChanged = onSecureInputChanged
         self.onToggled = onToggled
+        self.onHUDRequested = onHUDRequested
+        self.onHUDEvent = onHUDEvent
+        self.onPaletteToggleRequested = onPaletteToggleRequested
     }
 
     func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         // Re-enable tap if disabled
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            // The tap reference is held by the CFRunLoop; just re-enable
             return Unmanaged.passRetained(event)
         }
 
-        // Handle modifier changes (toggle hotkey)
+        // Handle modifier changes (toggle + HUD hotkeys)
         if type == .flagsChanged {
             let flags = event.flags
             let result = context.handleModifierTap(flags: flags)
-            if case .toggled(let enabled) = result.action {
+            switch result.action {
+            case .toggled(let enabled):
                 onToggled(enabled)
+            case .hudRequested:
+                onHUDRequested()
+            default:
+                break
             }
             return Unmanaged.passRetained(event)
         }
@@ -225,6 +265,13 @@ private final class TapHandler: @unchecked Sendable {
 
         let flags = event.flags
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+
+        // Palette chord — swallow the event by returning nil so the system never
+        // sees, e.g., ⌥Space (which would otherwise switch input source).
+        if context.handlePaletteChord(keyCode: keyCode, flags: flags) {
+            onPaletteToggleRequested()
+            return nil
+        }
 
         // Detect Cmd+V (paste)
         if flags.contains(.maskCommand) && keyCode == 0x09 {
@@ -269,6 +316,15 @@ private final class TapHandler: @unchecked Sendable {
             break
         case .matched(let match, let triggerLength):
             Logger.shared.debug("Match found: \(match.trigger) -> \(match.replace)")
+            // capturedBuffer is the trigger, not the full rolling buffer — the
+            // remaining 100+ chars of prior typing are not diagnostically useful here.
+            onHUDEvent(HUDEvent(
+                id: UUID(),
+                timestamp: Date(),
+                verdict: .matched,
+                capturedBuffer: match.trigger,
+                matchedTrigger: match.trigger
+            ))
             context.setSuppressMatching(true)
             onMatch(match, triggerLength)
         case .undo(let trigger):
@@ -279,6 +335,24 @@ private final class TapHandler: @unchecked Sendable {
             onSecureInputChanged(isSecure)
         case .toggled(let enabled):
             onToggled(enabled)
+        case .hudRequested:
+            onHUDRequested()
+        case .blockedTooSoon(let snapshot):
+            onHUDEvent(HUDEvent(
+                id: UUID(),
+                timestamp: Date(),
+                verdict: .tooSoon,
+                capturedBuffer: snapshot,
+                matchedTrigger: nil
+            ))
+        case .blockedDisabled(let snapshot):
+            onHUDEvent(HUDEvent(
+                id: UUID(),
+                timestamp: Date(),
+                verdict: .disabled,
+                capturedBuffer: snapshot,
+                matchedTrigger: nil
+            ))
         }
 
         return Unmanaged.passRetained(event)

@@ -5,11 +5,17 @@ import Foundation
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController!
     let matchStore = MatchStore()
+    let hudStore = HUDStore()
+    private var hudPanelController: HUDPanelController!
+    private var paletteController: PaletteController!
+    let activationCoordinator = ActivationPolicyCoordinator()
     private let keystrokeMonitor = KeystrokeMonitor()
     private let bootstrapper = Bootstrapper()
     private var fsEventStream: FSEventStreamRef?
     private var debounceTimer: Timer?
     private var updater: UpdaterService?
+
+    private lazy var recencyStore = RecencyStore(configDir: configDir)
 
     private let configDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/sokki")
@@ -65,12 +71,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // HUD panel. The closure must NOT capture self — HUDPanelController is owned by
+        // AppDelegate, which is owned by NSApp; a self-capture here creates a retain cycle.
+        hudPanelController = HUDPanelController(store: hudStore) { buffer in
+            NotificationCenter.default.post(name: .openSettings, object: nil)
+            // Defer one runloop turn so MatchListView's .onReceive subscription
+            // has landed (first-open race when the Settings window is lazy-created).
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .openMatchEditor,
+                    object: nil,
+                    userInfo: ["trigger": buffer]
+                )
+            }
+        }
+
+        // Palette controller (Spotlight-style fuzzy finder).
+        paletteController = PaletteController(
+            matchStore: matchStore,
+            recency: recencyStore,
+            renderer: keystrokeMonitor.variableRenderer,
+            injector: keystrokeMonitor.textInjector,
+            activation: activationCoordinator
+        )
+
         // Start monitoring
         keystrokeMonitor.onSecureInputChanged = { [weak self] isSecure in
             self?.statusItemController.updateSecureInput(isSecure)
         }
         keystrokeMonitor.onToggled = { [weak self] isEnabled in
             self?.statusItemController.updateIcon(enabled: isEnabled)
+        }
+        keystrokeMonitor.onHUDRequested = { [weak self] in
+            self?.hudPanelController.toggle()
+        }
+        keystrokeMonitor.onHUDEvent = { [weak self] event in
+            self?.hudStore.record(event)
+        }
+        keystrokeMonitor.onPaletteToggleRequested = { [weak self] in
+            self?.paletteController.toggle()
         }
         keystrokeMonitor.start()
 
