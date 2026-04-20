@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
-
+- Show source file per row and in the editor; filter by file; search triggers and replacements; delete selection with the Delete or Backspace key.
 
 ## 0.0.4 - 2026-04-19
 - Fixed settings window activation on macOS Tahoe.

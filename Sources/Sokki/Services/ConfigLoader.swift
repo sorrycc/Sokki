@@ -101,6 +101,8 @@ final class ConfigLoader: Sendable {
     }
 
     func saveMatches(_ matches: [Match], knownFiles: Set<String>) {
+        try? FileManager.default.createDirectory(at: matchDir, withIntermediateDirectories: true)
+
         var grouped: [String: [Match]] = [:]
         for match in matches {
             let filename = match.sourceFile ?? defaultMatchFilename

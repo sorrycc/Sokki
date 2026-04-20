@@ -11,6 +11,13 @@ final class MatchStore {
     private var knownFiles: Set<String> = []
     private let configLoader = ConfigLoader()
 
+    var availableSourceFiles: [String] {
+        var set = knownFiles
+        for m in matches { if let f = m.sourceFile { set.insert(f) } }
+        set.insert("default.yml")
+        return set.sorted()
+    }
+
     func loadAll() {
         let result = configLoader.loadAll()
         self.matches = result.matches
@@ -39,9 +46,7 @@ final class MatchStore {
 
     func update(_ match: Match) {
         guard let index = matches.firstIndex(where: { $0.id == match.id }) else { return }
-        var updated = match
-        updated.sourceFile = matches[index].sourceFile
-        matches[index] = updated
+        matches[index] = match
         saveMatches()
     }
 
