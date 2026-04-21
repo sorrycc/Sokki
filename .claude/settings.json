@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swift build)",
+      "Bash(swift build:*)",
+      "Bash(swift run)",
+      "Bash(swift run:*)",
+      "Bash(swift package:*)",
+      "Bash(bun dev)",
+      "Bash(bun release --help)",
+      "Bash(bun release:*--dry-run*)",
+      "Bash(./Scripts/upload_r2.ts --dry-run:*)",
+      "Bash(./Scripts/package_app.sh --help)",
+      "Bash(cat VERSION)",
+      "Bash(cat CHANGELOG.md)",
+      "Bash(cat Package.swift)",
+      "Bash(cat Package.resolved)",
+      "Bash(cat package.json)",
+      "Bash(ls:*)",
+      "Bash(du:*)",
+      "Bash(file:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git blame:*)",
+      "Bash(xcrun notarytool history:*)",
+      "Bash(xcrun notarytool info:*)",
+      "Bash(codesign -dv:*)",
+      "Bash(codesign --verify:*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Bash(cat .env)",
+      "Bash(bun release patch)",
+      "Bash(bun release minor)",
+      "Bash(bun release major)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(rm -rf:*)"
+    ]
+  }
+}
