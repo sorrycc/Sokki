@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                NSApp.activate()
                 self?.updater?.checkForUpdates()
             }
         }
