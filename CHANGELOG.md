@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- Added AI rewrite triggers: matches can define an `ai:` block that runs the local `claude` CLI and replaces the trigger or selection with the result. Invoke by typing the trigger or by committing from the palette (recommended for `input: selection`).
 
 
 ## 0.0.5 - 2026-04-20
