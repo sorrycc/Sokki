@@ -11,6 +11,9 @@ struct SettingsView: View {
 
             GeneralSettingsView(store: store)
                 .tabItem { Label("General", systemImage: "gear") }
+
+            PrivacySettingsView()
+                .tabItem { Label("Privacy", systemImage: "hand.raised") }
         }
         .frame(minWidth: 500, minHeight: 400)
     }

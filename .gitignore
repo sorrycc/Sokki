@@ -6,3 +6,4 @@
 .swiftpm/
 /tmp
 /.env
+/Scripts/telemetry.config

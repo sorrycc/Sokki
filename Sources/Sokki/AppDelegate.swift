@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var fsEventStream: FSEventStreamRef?
     private var debounceTimer: Timer?
     private var updater: UpdaterService?
+    private var crashReporter: CrashReporter?
+    private var telemetry: TelemetryService?
 
     private lazy var recencyStore = RecencyStore(configDir: configDir)
 
@@ -114,6 +116,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.paletteController.toggle()
         }
         keystrokeMonitor.start()
+
+        // Telemetry + crash upload are opt-out; gated on Info.plist like Sparkle.
+        if let config = TelemetryConfig.fromBundle() {
+            let crashReporter = CrashReporter(config: config)
+            let telemetry = TelemetryService(config: config)
+            self.crashReporter = crashReporter
+            self.telemetry = telemetry
+            Task {
+                await crashReporter.start()
+                await telemetry.start()
+            }
+        }
 
         Logger.shared.debug("Sokki started")
     }
