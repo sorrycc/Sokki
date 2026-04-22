@@ -38,8 +38,6 @@
       "Bash(bun release patch)",
       "Bash(bun release minor)",
       "Bash(bun release major)",
-      "Bash(git push:*)",
-      "Bash(git tag:*)",
       "Bash(rm -rf:*)"
     ]
   }
