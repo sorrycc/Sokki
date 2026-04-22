@@ -13,18 +13,18 @@ Wire Sparkle 2 into Sokki so that a single command — `bun release patch --push
 
 **Mechanical transcription of the autoupdate playbook**, mirroring the pattern of `2026-04-18-release-infrastructure.md`. Copy Shun's working `upload_r2.ts` verbatim; substitute Sokki's placeholders; patch `package_app.sh` and `release.ts` per playbook §8 / §10. No new abstractions.
 
-**Reuse Shun's R2 bucket** via `APP_KEY_PREFIX=sokki`. Same credentials, same `.env`-at-repo-root pattern, same `pub-35387f8a923241ffa2dc24251ae7b9d0.r2.dev` base URL. Feed at `https://pub-.../sokki/appcast.xml`.
+**Reuse Shun's R2 bucket** via `APP_KEY_PREFIX=sokki`. Same credentials, same `.env`-at-repo-root pattern. Public host is `https://download.sorrycc.dev` (served by `~/Projects/downloads-worker` — a Cloudflare Worker with an R2 binding, shared with Shun). Feed at `https://download.sorrycc.dev/sokki/appcast.xml`. The `pub-35387f8a923241ffa2dc24251ae7b9d0.r2.dev` subdomain remains enabled as a fallback for any pre-custom-domain installs.
 
 **Fresh EdDSA keypair for Sokki**, with one-time keychain migration so Sokki's and Shun's private keys coexist (see §3).
 
-**YAGNI cuts**: no beta channel, no custom domain, no Sparkle delta updates, no release-notes HTML customization beyond what the playbook provides.
+**YAGNI cuts**: no beta channel, no Sparkle delta updates, no release-notes HTML customization beyond what the playbook provides. (The custom-domain Worker at `download.sorrycc.dev` exists now, shared with Shun — see `~/Projects/downloads-worker`.)
 
 ### Alternatives considered and rejected
 
 - *Shared EdDSA keypair across both apps* — violates least-privilege; a Shun key leak would compromise Sokki updates too.
 - *New dedicated R2 bucket for Sokki* — more ceremony, no benefit at current scale. `APP_KEY_PREFIX` already namespaces cleanly.
 - *Settings UI as new `Updates` tab* — YAGNI; a Form section in the existing General tab matches the playbook and is one fewer scene to maintain.
-- *Custom Cloudflare Worker / domain from day one* — premature. Playbook §15 documents a clean migration path that doesn't break existing users.
+- *Custom Cloudflare Worker / domain from day one* — originally deferred; now shipped as the shared `downloads-worker` at `download.sorrycc.dev`. The Worker is append-only to this design: r2.dev stays enabled so pre-migration installs keep updating.
 
 ## 1. File changes
 
@@ -32,7 +32,7 @@ Wire Sparkle 2 into Sokki so that a single command — `bun release patch --push
 
 | Path | Source | Notes |
 |---|---|---|
-| `Scripts/sparkle.config` | Playbook §7a | `SPARKLE_PUBLIC_KEY=<fresh Sokki key>`, feed `https://pub-35387f8a923241ffa2dc24251ae7b9d0.r2.dev/sokki/appcast.xml`, base `https://pub-...r2.dev`. Committed. |
+| `Scripts/sparkle.config` | Playbook §7a | `SPARKLE_PUBLIC_KEY=<fresh Sokki key>`, feed `https://download.sorrycc.dev/sokki/appcast.xml`, base `https://download.sorrycc.dev`. Committed. |
 | `Scripts/upload_r2.ts` | Copy from `/Users/chencheng/Projects/shun/Scripts/upload_r2.ts` with two edits | (1) Swap hardcoded `"Shun"` → `"Sokki"` in appcast `<title>` / `<link>` / `<description>`. (2) **Add `--account ed25519-sokki`** to the `sign_update` invocation (Shun's current copy has no `--account` flag; required once we rename the keychain entries per §3a). `APP_KEY_PREFIX` drives the rest via env. |
 | `.env.example` | Playbook §7b | Committed template. |
 | `.env` | Same, with real creds | **Gitignored** (`/.env`). Created manually before first `--upload`. |
@@ -227,7 +227,7 @@ If even this is too much ceremony: skip smoke-testing entirely. The first real `
 2. `./Scripts/package_app.sh` → `open Sokki.app` — menu bar icon appears, app does not crash at launch (rpath patch working; no dyld "Library not loaded").
 3. `./Scripts/upload_r2.ts --version 0.0.1 --dry-run` — preflight passes, XML + upload plan print cleanly.
 4. Edit `## Unreleased`, then `bun release patch --push --upload` for `0.0.2`. Full ~5 min pipeline.
-5. `curl -sI https://pub-35387f8a923241ffa2dc24251ae7b9d0.r2.dev/sokki/appcast.xml` returns `200`; `curl` the body and verify `sparkle:version="0.0.2"`, `sparkle:edSignature` present, enclosure URL matches uploaded ZIP.
+5. `curl -sI https://download.sorrycc.dev/sokki/appcast.xml` returns `200`; `curl` the body and verify `sparkle:version="0.0.2"`, `sparkle:edSignature` present, enclosure URL matches uploaded ZIP.
 6. Install `0.0.2` manually (drag DMG to `/Applications`). Settings → General → Updates shows version `0.0.2`, toggle defaults on.
 7. Bump `## Unreleased`, run `bun release patch --push --upload` for `0.0.3`. Installed `0.0.2` should surface the update via "Check for Updates…" menu; one-click install succeeds.
 
@@ -241,7 +241,7 @@ From playbook §13, filtered for Sokki-specific relevance:
 - **UTF-8 byte length in appcast** — baked into Shun's `upload_r2.ts` via `TextEncoder`. Don't regress when editing `<title>` / `<description>` strings.
 - **Keychain slot collision with Shun** — addressed in §3a. `sign_update -a` flag to be validated during implementation; re-alias fallback documented.
 - **First-release auto-update gap** — existing `0.0.1` install (just the author) needs one manual re-download. Zero external impact.
-- **`r2.dev` rate limit** (~10 req/s) — irrelevant at Sokki's scale. Migration to custom domain / Worker documented in playbook §15 if ever needed. Never change `SUFeedURL` for an already-shipped version.
+- **`r2.dev` rate limit** (~10 req/s) — no longer on the critical path; traffic flows through `download.sorrycc.dev` (Worker + R2 binding). r2.dev stays enabled so any pre-migration installs continue to update. Never change `SUFeedURL` for an already-shipped version.
 - **Sparkle minor-version bumps can break delegate contracts** — `.upToNextMinor(from: "2.7.0")` pin limits exposure. Revisit when bumping.
 - **Hardened-runtime entitlements for Sparkle XPC** — the 2026-04-18 design asserted "no entitlements file needed." Sparkle embeds `.xpc` helpers (`Installer`, `Downloader`) which might require entitlements under hardened runtime in some configurations. **Action during implementation**: build, notarize, launch the bundled app, trigger "Check for Updates…", and confirm Console.app shows no `EXC_BAD_INSTRUCTION` / XPC sandbox denial from `org.sparkle-project.Sparkle.*`. If denials appear, add a minimal `.entitlements` file (most likely `com.apple.security.temporary-exception.mach-lookup.global-name` for the XPC services) and re-sign. Shun presumably did not need this; verify but don't pre-empt.
 
