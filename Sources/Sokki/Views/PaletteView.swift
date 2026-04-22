@@ -99,8 +99,15 @@ struct PaletteView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                if let ai = match.ai {
+                    Text("AI · \(ai.input.rawValue)")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Color.blue.opacity(0.7), in: Capsule())
+                }
             }
-            Text(firstLine(match.replace))
+            Text(previewLine(match))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -108,15 +115,62 @@ struct PaletteView: View {
         .padding(.vertical, 2)
     }
 
+    private func previewLine(_ match: Match) -> String {
+        if let ai = match.ai {
+            return firstLine(ai.prompt)
+        }
+        return firstLine(match.replace)
+    }
+
+    private func aiPreview(_ ai: AIConfig) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                labelledBlock("PROMPT", ai.prompt)
+                labelledBlock("INPUT", aiInputDescription(ai.input))
+                Text("Runs Claude haiku via the local `claude` CLI. Result will replace the placeholder “\(PaletteView.placeholderText)”.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+            .padding(14)
+        }
+    }
+
+    private static let placeholderText = "▎ thinking…"
+
+    private func labelledBlock(_ label: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            Text(body)
+                .font(.system(.body, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func aiInputDescription(_ input: AIInput) -> String {
+        switch input {
+        case .selection: return "current selection (copied via ⌘C; replaces selection with result)"
+        case .clipboard: return "current clipboard text (injected at cursor)"
+        case .none:      return "none (pure generation at cursor)"
+        }
+    }
+
     private var previewPane: some View {
         Group {
             if let m = selectedMatch {
-                ScrollView {
-                    Text(renderer.renderPreview(m.replace, clipboardSnapshot: clipboardSnapshot))
-                        .font(.system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(14)
+                if let ai = m.ai {
+                    aiPreview(ai)
+                } else {
+                    ScrollView {
+                        Text(renderer.renderPreview(m.replace, clipboardSnapshot: clipboardSnapshot))
+                            .font(.system(.body, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(14)
+                    }
                 }
             } else {
                 VStack {

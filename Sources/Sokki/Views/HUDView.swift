@@ -40,25 +40,37 @@ private struct HUDRow: View {
     let onToggleReveal: () -> Void
     let onCreateMatch: () -> Void
 
+    private var isCompactVerdict: Bool {
+        switch event.verdict {
+        case .matched, .aiThinking, .aiCompleted, .aiFailed: return true
+        case .tooSoon, .disabled: return false
+        }
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VerdictChip(verdict: event.verdict)
 
             VStack(alignment: .leading, spacing: 2) {
-                // For .matched rows, capturedBuffer == matchedTrigger; show the trigger
-                // once as primary content rather than duplicating it on both lines.
-                if event.verdict != .matched {
+                if !isCompactVerdict {
                     Text(renderedBuffer)
                         .font(.system(.body, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 if let t = event.matchedTrigger {
-                    Text(event.verdict == .matched ? t : "→ \(t)")
-                        .font(event.verdict == .matched ? .system(.body, design: .monospaced) : .caption)
-                        .foregroundStyle(event.verdict == .matched ? .primary : .secondary)
+                    Text(isCompactVerdict ? t : "→ \(t)")
+                        .font(isCompactVerdict ? .system(.body, design: .monospaced) : .caption)
+                        .foregroundStyle(isCompactVerdict ? .primary : .secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                }
+                if let note = event.note, !note.isEmpty {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
                 }
             }
             Spacer(minLength: 8)
@@ -105,17 +117,23 @@ private struct VerdictChip: View {
 
     private var label: String {
         switch verdict {
-        case .matched:  return "Matched"
-        case .tooSoon:  return "Too soon"
-        case .disabled: return "Disabled"
+        case .matched:     return "Matched"
+        case .tooSoon:     return "Too soon"
+        case .disabled:    return "Disabled"
+        case .aiThinking:  return "AI…"
+        case .aiCompleted: return "AI done"
+        case .aiFailed:    return "AI failed"
         }
     }
 
     private var tint: Color {
         switch verdict {
-        case .matched:  return .green
-        case .tooSoon:  return .orange
-        case .disabled: return .secondary
+        case .matched:     return .green
+        case .tooSoon:     return .orange
+        case .disabled:    return .secondary
+        case .aiThinking:  return .blue
+        case .aiCompleted: return .green
+        case .aiFailed:    return .red
         }
     }
 }

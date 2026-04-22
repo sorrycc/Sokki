@@ -92,7 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recency: recencyStore,
             renderer: keystrokeMonitor.variableRenderer,
             injector: keystrokeMonitor.textInjector,
-            activation: activationCoordinator
+            activation: activationCoordinator,
+            aiExecutor: keystrokeMonitor
         )
 
         // Start monitoring

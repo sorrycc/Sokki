@@ -18,6 +18,44 @@ final class TextInjector {
         }
     }
 
+    /// Erase `count` characters via simulated backspaces.
+    func eraseInjected(count: Int) {
+        eraseCharacters(count: count)
+    }
+
+    /// Inject a string via unicode keyboard events without touching the trigger.
+    /// Used by the AI flow for placeholder + delta injection. Batches into
+    /// ≤200 UTF-16 code unit chunks so `keyboardSetUnicodeString` doesn't
+    /// overflow, and sleeps briefly between chunks so throttling Electron
+    /// apps don't drop events.
+    func injectDelta(_ text: String) {
+        guard !text.isEmpty else { return }
+        let source = CGEventSource(stateID: .hidSystemState)
+        let utf16 = Array(text.utf16)
+        let chunkSize = 200
+        var index = 0
+        while index < utf16.count {
+            let end = min(index + chunkSize, utf16.count)
+            let slice = Array(utf16[index..<end])
+            if let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) {
+                event.keyboardSetUnicodeString(stringLength: slice.count, unicodeString: slice)
+                event.post(tap: .cghidEventTap)
+            }
+            // IMPORTANT: keyUp must NOT carry the unicode string. Some apps
+            // (Electron / rich-input fields) process keyUp text too and insert
+            // a second copy. Match the existing `injectViaKeys` pattern: bare
+            // release with no string attached.
+            if let upEvent = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
+                upEvent.post(tap: .cghidEventTap)
+            }
+            index = end
+            if index < utf16.count {
+                let gap = config.injectDelay > 0 ? UInt32(config.injectDelay) * 1000 : 1500
+                usleep(gap)
+            }
+        }
+    }
+
     private func eraseCharacters(count: Int) {
         let backspaceKeyCode: CGKeyCode = 0x33
         for _ in 0..<count {

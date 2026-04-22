@@ -20,6 +20,8 @@ final class TapContext: @unchecked Sendable {
         var hasEmittedTooSoonForCurrentPaste = false
         var hasEmittedDisabledSinceLastEnable = false
         var paletteChord: PaletteChord?
+        var activeAIRequest = false
+        var userTypedDuringAI = false
     }
 
     struct PaletteChord: Sendable, Equatable {
@@ -260,5 +262,41 @@ final class TapContext: @unchecked Sendable {
         lock.withLock { state in
             state.isEnabled
         }
+    }
+
+    // MARK: - AI request state
+
+    func setActiveAIRequest(_ active: Bool) {
+        lock.withLock { state in
+            state.activeAIRequest = active
+            if !active { state.userTypedDuringAI = false }
+        }
+    }
+
+    func noteUserTypedDuringAI() {
+        lock.withLock { state in
+            // Ignore self-echo: while we're actively injecting (suppressMatching
+            // is true), incoming synthesized keystrokes are our own.
+            if state.activeAIRequest && !state.suppressMatching {
+                state.userTypedDuringAI = true
+            }
+        }
+    }
+
+    /// Atomically read `userTypedDuringAI` AND clear both AI flags. Callers
+    /// on the completion/failure path must use this instead of a separate
+    /// read + `setActiveAIRequest(false)` — the latter clears the flag
+    /// before it can be observed.
+    func consumeUserTypedDuringAI() -> Bool {
+        lock.withLock { state in
+            let typed = state.userTypedDuringAI
+            state.activeAIRequest = false
+            state.userTypedDuringAI = false
+            return typed
+        }
+    }
+
+    var isAIActive: Bool {
+        lock.withLock { state in state.activeAIRequest }
     }
 }

@@ -76,6 +76,20 @@ final class Bootstrapper {
             replace: |
               Best regards,
               Your Name
+
+          # AI rewrite of the current selection (requires `claude` CLI + sign-in)
+          # Select some text, type the trigger, and the selection is replaced
+          # by the AI output. Uses haiku by default — see config/default.yml.
+          - trigger: ";;pro"
+            ai:
+              prompt: "Rewrite professionally, keep the meaning."
+              input: selection
+
+          # AI generation from clipboard content
+          - trigger: ";;tldr"
+            ai:
+              prompt: "Summarize in 3 short bullets."
+              input: clipboard
         """
         let url = configDir.appendingPathComponent("match/default.yml")
         try content.write(to: url, atomically: true, encoding: .utf8)
