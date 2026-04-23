@@ -128,6 +128,11 @@ struct AISettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                Text("AI features are powered by your locally-installed Claude Code CLI.")
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Model") {
                 TextField("Model", text: $store.config.ai.model)
 

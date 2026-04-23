@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- **AI settings** now explains upfront that AI features are powered by your locally-installed Claude Code CLI.
 
 
 ## 0.0.9 - 2026-04-23
