@@ -7,6 +7,7 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 - **AI settings** now explains upfront that AI features are powered by your locally-installed Claude Code CLI.
+- Default log level is now `debug` instead of `error`, and routine AI / palette / Claude-binary messages no longer surface as errors — the log file stays useful without drowning in false alarms.
 
 
 ## 0.0.9 - 2026-04-23

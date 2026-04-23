@@ -52,14 +52,14 @@ final class PaletteController {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                Logger.shared.error("[Palette] panel didBecomeKey — firstResponder=\(String(describing: self.panel.firstResponder))")
+                Logger.shared.debug("[Palette] panel didBecomeKey — firstResponder=\(String(describing: self.panel.firstResponder))")
             }
         }
         NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification, object: p, queue: .main
         ) { _ in
             MainActor.assumeIsolated {
-                Logger.shared.error("[Palette] panel didResignKey")
+                Logger.shared.debug("[Palette] panel didResignKey")
             }
         }
     }
@@ -67,14 +67,14 @@ final class PaletteController {
     // MARK: - Toggle
 
     func toggle() {
-        Logger.shared.error("[Palette] toggle() isShowing=\(isShowing)")
+        Logger.shared.debug("[Palette] toggle() isShowing=\(isShowing)")
         if isShowing { close() } else { show() }
     }
 
     // MARK: - Show / close
 
     private func show() {
-        Logger.shared.error("[Palette] show() entry — NSApp.isActive=\(NSApp.isActive) policy=\(NSApp.activationPolicy().rawValue)")
+        Logger.shared.debug("[Palette] show() entry — NSApp.isActive=\(NSApp.isActive) policy=\(NSApp.activationPolicy().rawValue)")
         if isShowing {
             panel.makeKeyAndOrderFront(nil)
             return
@@ -84,7 +84,7 @@ final class PaletteController {
         // to .regular and activate, frontmost becomes Sokki itself.
         targetApp = NSWorkspace.shared.frontmostApplication
         clipboardSnapshot = NSPasteboard.general.string(forType: .string)
-        Logger.shared.error("[Palette] snapshot target=\(targetApp?.bundleIdentifier ?? "nil")")
+        Logger.shared.debug("[Palette] snapshot target=\(targetApp?.bundleIdentifier ?? "nil")")
 
         let frame = computeFrame()
         panel.setFrame(frame, display: false)
@@ -106,11 +106,11 @@ final class PaletteController {
         // macOS Tahoe gates key-window status on app activation: an .accessory
         // app's panel cannot become key (and TextField cannot receive keys)
         // unless the app is .regular and active. Mirrors SokkiApp.swift:22-38.
-        Logger.shared.error("[Palette] before acquire — panel.canBecomeKey=\(panel.canBecomeKey) isKeyWindow=\(panel.isKeyWindow)")
+        Logger.shared.debug("[Palette] before acquire — panel.canBecomeKey=\(panel.canBecomeKey) isKeyWindow=\(panel.isKeyWindow)")
         activation.acquire()
-        Logger.shared.error("[Palette] after acquire — NSApp.isActive=\(NSApp.isActive) policy=\(NSApp.activationPolicy().rawValue)")
+        Logger.shared.debug("[Palette] after acquire — NSApp.isActive=\(NSApp.isActive) policy=\(NSApp.activationPolicy().rawValue)")
         panel.makeKeyAndOrderFront(nil)
-        Logger.shared.error("[Palette] after makeKeyAndOrderFront — isVisible=\(panel.isVisible) isKeyWindow=\(panel.isKeyWindow) firstResponder=\(String(describing: panel.firstResponder))")
+        Logger.shared.debug("[Palette] after makeKeyAndOrderFront — isVisible=\(panel.isVisible) isKeyWindow=\(panel.isKeyWindow) firstResponder=\(String(describing: panel.firstResponder))")
 
         // Global mouse monitor: any click in another app dismisses.
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -122,11 +122,11 @@ final class PaletteController {
         // Settle check after a runloop turn — captures the state SwiftUI sees.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            Logger.shared.error("[Palette] +async — NSApp.isActive=\(NSApp.isActive) panel.isKeyWindow=\(self.panel.isKeyWindow) firstResponder=\(String(describing: self.panel.firstResponder))")
+            Logger.shared.debug("[Palette] +async — NSApp.isActive=\(NSApp.isActive) panel.isKeyWindow=\(self.panel.isKeyWindow) firstResponder=\(String(describing: self.panel.firstResponder))")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(150)) { [weak self] in
             guard let self else { return }
-            Logger.shared.error("[Palette] +150ms — NSApp.isActive=\(NSApp.isActive) panel.isKeyWindow=\(self.panel.isKeyWindow) firstResponder=\(String(describing: self.panel.firstResponder))")
+            Logger.shared.debug("[Palette] +150ms — NSApp.isActive=\(NSApp.isActive) panel.isKeyWindow=\(self.panel.isKeyWindow) firstResponder=\(String(describing: self.panel.firstResponder))")
         }
     }
 

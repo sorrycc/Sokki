@@ -18,7 +18,7 @@ final class Logger: Sendable {
     private let maxSize: Int = 1_048_576 // 1MB
     private let lock = NSLock()
 
-    nonisolated(unsafe) private static var _level: Level = .error
+    nonisolated(unsafe) private static var _level: Level = .debug
 
     static var level: Level {
         get { _level }

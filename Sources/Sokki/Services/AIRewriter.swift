@@ -51,7 +51,7 @@ final class AIRewriter {
         let myGen = generation
 
         guard let binary = resolver.resolve(explicitPath: aiBinaryPath) else {
-            Logger.shared.error("[AI] binary not found (override=\(aiBinaryPath ?? "nil"))")
+            Logger.shared.warning("[AI] binary not found (override=\(aiBinaryPath ?? "nil"))")
             return .failed(.binaryMissing)
         }
 
@@ -60,9 +60,9 @@ final class AIRewriter {
             model: req.model,
             systemPromptAppend: systemPromptAppend
         )
-        for line in canon.logs { Logger.shared.error(line) }
+        for line in canon.logs { Logger.shared.debug(line) }
 
-        Logger.shared.error(
+        Logger.shared.debug(
             "[AI] run binary=\(binary.path) model=\(req.model) timeout=\(Int(req.timeout))s promptLen=\(req.prompt.count) gen=\(myGen)"
         )
 
@@ -89,7 +89,7 @@ final class AIRewriter {
 
     func cancelCurrent() {
         if currentTask != nil {
-            Logger.shared.error("[AI] cancelCurrent")
+            Logger.shared.debug("[AI] cancelCurrent")
         }
         currentTask?.cancel()
         currentTask = nil
@@ -250,29 +250,29 @@ final class AIRewriter {
     }
 
     nonisolated private static func parse(result: CommandResult) -> Event {
-        Logger.shared.error(
+        Logger.shared.debug(
             "[AI] process exit=\(result.exitCode) stdoutBytes=\(result.stdoutData.count) stderrLen=\(result.stderrTail.count)"
         )
 
         let stderrLower = result.stderrTail.lowercased()
         let authHints = ["log in", "logged in", "authenticate", "not signed in", "sign in"]
         if result.exitCode != 0, authHints.contains(where: { stderrLower.contains($0) }) {
-            Logger.shared.error("[AI] parse: authRequired stderrTail=\(result.stderrTail.prefix(200))")
+            Logger.shared.warning("[AI] parse: authRequired stderrTail=\(result.stderrTail.prefix(200))")
             return .failed(.authRequired)
         }
 
         if result.stdoutData.isEmpty {
             if result.exitCode == 0 {
-                Logger.shared.error("[AI] parse: empty stdout with exit=0")
+                Logger.shared.warning("[AI] parse: empty stdout with exit=0")
                 return .failed(.protocolError("empty stdout"))
             }
-            Logger.shared.error("[AI] parse: nonZeroExit code=\(result.exitCode) stderrTail=\(result.stderrTail.prefix(200))")
+            Logger.shared.warning("[AI] parse: nonZeroExit code=\(result.exitCode) stderrTail=\(result.stderrTail.prefix(200))")
             return .failed(.nonZeroExit(code: result.exitCode, stderrTail: result.stderrTail))
         }
 
         do {
             guard let obj = try JSONSerialization.jsonObject(with: result.stdoutData) as? [String: Any] else {
-                Logger.shared.error("[AI] parse: non-object JSON")
+                Logger.shared.warning("[AI] parse: non-object JSON")
                 return .failed(.protocolError("non-object JSON"))
             }
             let isError = (obj["is_error"] as? Bool) ?? false
@@ -288,22 +288,22 @@ final class AIRewriter {
                     || msgLower.contains("log in")
                     || msgLower.contains("authenticate")
                 {
-                    Logger.shared.error("[AI] parse: authRequired (json) msg=\(msg.prefix(200))")
+                    Logger.shared.warning("[AI] parse: authRequired (json) msg=\(msg.prefix(200))")
                     return .failed(.authRequired)
                 }
-                Logger.shared.error("[AI] parse: is_error=true msg=\(msg.prefix(200))")
+                Logger.shared.warning("[AI] parse: is_error=true msg=\(msg.prefix(200))")
                 return .failed(.nonZeroExit(code: result.exitCode, stderrTail: msg))
             }
             if text.isEmpty {
-                Logger.shared.error("[AI] parse: missing `result` field keys=\(obj.keys.joined(separator: ","))")
+                Logger.shared.warning("[AI] parse: missing `result` field keys=\(obj.keys.joined(separator: ","))")
                 return .failed(.protocolError("missing `result` field"))
             }
-            Logger.shared.error(
+            Logger.shared.debug(
                 "[AI] parse: ok resultLen=\(text.count) cliDurationMs=\(durationMs) costUSD=\(cost)"
             )
             return .completed(text)
         } catch {
-            Logger.shared.error("[AI] parse: JSON decode \(error.localizedDescription)")
+            Logger.shared.warning("[AI] parse: JSON decode \(error.localizedDescription)")
             return .failed(.protocolError("JSON decode: \(error.localizedDescription)"))
         }
     }

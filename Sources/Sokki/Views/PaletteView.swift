@@ -49,21 +49,21 @@ struct PaletteView: View {
         )
         .onKeyPress(.escape) { onClose(); return .handled }
         .onAppear {
-            Logger.shared.error("[Palette] view onAppear — searchFocused(before)=\(searchFocused)")
+            Logger.shared.debug("[Palette] view onAppear — searchFocused(before)=\(searchFocused)")
             selection = filtered.first?.match.id
             // Defer one runloop turn so the underlying NSHostingView has finished
             // mounting and AppKit's first-responder chain is established before
             // SwiftUI tries to claim focus.
             DispatchQueue.main.async {
                 searchFocused = true
-                Logger.shared.error("[Palette] view +async — searchFocused(after assign)=\(searchFocused)")
+                Logger.shared.debug("[Palette] view +async — searchFocused(after assign)=\(searchFocused)")
             }
         }
         .onChange(of: searchFocused) { old, new in
-            Logger.shared.error("[Palette] searchFocused changed \(old) -> \(new)")
+            Logger.shared.debug("[Palette] searchFocused changed \(old) -> \(new)")
         }
         .onChange(of: query) { _, new in
-            Logger.shared.error("[Palette] query changed -> '\(new)'")
+            Logger.shared.debug("[Palette] query changed -> '\(new)'")
             selection = filtered.first?.match.id
         }
     }

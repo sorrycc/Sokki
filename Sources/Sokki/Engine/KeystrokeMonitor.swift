@@ -211,13 +211,13 @@ final class KeystrokeMonitor {
         // any state mutation / clipboard save / injection, so an in-flight
         // run is not disturbed.
         if tapContext.isAIActive {
-            Logger.shared.error("[AI] refused — another AI run is in flight")
+            Logger.shared.warning("[AI] refused — another AI run is in flight")
             emitHUD(.aiFailed, trigger: match.trigger, note: "AI busy")
             return
         }
 
         let started = Date()
-        Logger.shared.error(
+        Logger.shared.debug(
             "[AI] match trigger=\(match.trigger) invocation=\(invocation.label) promptLen=\(promptRaw.count) placeholders=\(template.placeholders.count) model=\(appConfig.ai.model)"
         )
 
@@ -238,7 +238,7 @@ final class KeystrokeMonitor {
         if template.needsClipboard {
             let s = NSPasteboard.general.string(forType: .string) ?? ""
             clipboardText = s
-            Logger.shared.error("[AI] clipboard snapshot len=\(s.count)")
+            Logger.shared.debug("[AI] clipboard snapshot len=\(s.count)")
         }
 
         var selectionText: String? = nil
@@ -251,9 +251,9 @@ final class KeystrokeMonitor {
             let captureMs = Int(Date().timeIntervalSince(captureStart) * 1000)
             if let captured {
                 selectionText = captured
-                Logger.shared.error("[AI] selection captured len=\(captured.count) in \(captureMs)ms")
+                Logger.shared.debug("[AI] selection captured len=\(captured.count) in \(captureMs)ms")
             } else if template.requiresSelection {
-                Logger.shared.error("[AI] no selection (timeout=\(appConfig.ai.selectionCaptureTimeoutMs)ms, elapsed=\(captureMs)ms)")
+                Logger.shared.warning("[AI] no selection (timeout=\(appConfig.ai.selectionCaptureTimeoutMs)ms, elapsed=\(captureMs)ms)")
                 if case .typedTrigger = invocation {
                     textInjector.injectDelta(match.trigger)
                 }
@@ -265,7 +265,7 @@ final class KeystrokeMonitor {
                 // fallback (e.g. `{{s|c}}`). Leave selectionText = nil and let
                 // render() pick the next source; if every chain is unresolved
                 // the render-abort branch below will surface it.
-                Logger.shared.error("[AI] selection missing — falling back to chain (elapsed=\(captureMs)ms)")
+                Logger.shared.warning("[AI] selection missing — falling back to chain (elapsed=\(captureMs)ms)")
             }
         }
 
@@ -273,7 +273,7 @@ final class KeystrokeMonitor {
         // note naming the offending placeholder.
         guard let rendered = template.render(selection: selectionText, clipboard: clipboardText) else {
             let chain = template.firstUnresolvedChain(selection: selectionText, clipboard: clipboardText) ?? "{{…}}"
-            Logger.shared.error("[AI] render aborted: no input for \(chain)")
+            Logger.shared.warning("[AI] render aborted: no input for \(chain)")
             if case .typedTrigger = invocation {
                 textInjector.injectDelta(match.trigger)
             }
@@ -298,7 +298,7 @@ final class KeystrokeMonitor {
         beginAIMouseWatch()
 
         emitHUD(.aiThinking, trigger: match.trigger, note: nil)
-        Logger.shared.error("[AI] placeholder injected (style=\(style.rawValue)), dispatching request")
+        Logger.shared.debug("[AI] placeholder injected (style=\(style.rawValue)), dispatching request")
         startAnimationTaskIfNeeded(style: style)
 
         let request = AIRewriter.Request(
@@ -321,7 +321,7 @@ final class KeystrokeMonitor {
 
         switch event {
         case .completed(let text):
-            Logger.shared.error("[AI] completed len=\(text.count) typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
+            Logger.shared.debug("[AI] completed len=\(text.count) typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
             if !typed {
                 textInjector.eraseInjected(count: placeholderLength)
                 textInjector.injectDelta(text)
@@ -340,7 +340,7 @@ final class KeystrokeMonitor {
             tapContext.clearBuffer()
 
         case .failed(let reason):
-            Logger.shared.error("[AI] failed reason=\(reasonString(reason)) typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
+            Logger.shared.warning("[AI] failed reason=\(reasonString(reason)) typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
             restoreAfterAIFailure(
                 trigger: match.trigger,
                 selection: selectionText,
@@ -351,7 +351,7 @@ final class KeystrokeMonitor {
             emitHUD(.aiFailed, trigger: match.trigger, note: reasonString(reason))
 
         case .cancelled:
-            Logger.shared.error("[AI] cancelled typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
+            Logger.shared.warning("[AI] cancelled typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
             restoreAfterAIFailure(
                 trigger: match.trigger,
                 selection: selectionText,

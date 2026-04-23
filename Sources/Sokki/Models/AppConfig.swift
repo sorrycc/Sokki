@@ -7,7 +7,7 @@ struct AppConfig: Codable, Sendable, Equatable {
     var pasteShortcut: String = "Cmd+V"
     var preserveClipboard: Bool = true
     var restoreClipboardDelay: Int = 100
-    var logLevel: String = "error"
+    var logLevel: String = "debug"
     var toggleShortcut: String = "none"
     var hudShortcut: String = "none"
     var paletteShortcut: String = "none"
@@ -56,7 +56,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.pasteShortcut = (try? container.decode(String.self, forKey: .pasteShortcut)) ?? "Cmd+V"
         self.preserveClipboard = (try? container.decode(Bool.self, forKey: .preserveClipboard)) ?? true
         self.restoreClipboardDelay = (try? container.decode(Int.self, forKey: .restoreClipboardDelay)) ?? 100
-        self.logLevel = (try? container.decode(String.self, forKey: .logLevel)) ?? "error"
+        self.logLevel = (try? container.decode(String.self, forKey: .logLevel)) ?? "debug"
         self.toggleShortcut = (try? container.decode(String.self, forKey: .toggleShortcut)) ?? "none"
         self.hudShortcut = (try? container.decode(String.self, forKey: .hudShortcut)) ?? "none"
         self.paletteShortcut = (try? container.decode(String.self, forKey: .paletteShortcut)) ?? "none"

@@ -44,7 +44,7 @@ final class Bootstrapper {
         paste_shortcut: "Cmd+V"
         preserve_clipboard: true
         restore_clipboard_delay: 100     # ms
-        log_level: "error"               # "error" (default) or "debug"
+        log_level: "debug"               # "debug" (default) or "error"
         toggle_shortcut: "none"          # "none" (default), "double_option", "double_shift", or "double_control"
         hud_shortcut: "none"             # "none" (default), "double_option", "double_shift", or "double_control"
         """

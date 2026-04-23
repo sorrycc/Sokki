@@ -17,14 +17,14 @@ final class ClaudeBinaryResolver {
             if fileManager.isExecutableFile(atPath: path) {
                 let url = URL(fileURLWithPath: path)
                 cached = url
-                Logger.shared.error("[AI:resolve] found at \(path)")
+                Logger.shared.debug("[AI:resolve] found at \(path)")
                 return url
             }
         }
 
         if let fromShell = resolveViaLoginShell() {
             cached = fromShell
-            Logger.shared.error("[AI:resolve] found via login shell at \(fromShell.path)")
+            Logger.shared.debug("[AI:resolve] found via login shell at \(fromShell.path)")
             return fromShell
         }
 
