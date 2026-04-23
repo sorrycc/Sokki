@@ -39,6 +39,11 @@ struct PromptTemplate: Sendable, Equatable {
     var needsSelection: Bool { placeholders.contains { $0.chain.contains(.selection) } }
     var needsClipboard: Bool { placeholders.contains { $0.chain.contains(.clipboard) } }
 
+    /// True iff some chain is exactly `[.selection]` — i.e. no fallback source
+    /// can substitute. Distinguishes `{{s}}` (mandatory) from `{{s|c}}`
+    /// (preferred but fallback-capable).
+    var requiresSelection: Bool { placeholders.contains { $0.chain == [.selection] } }
+
     static func parse(_ s: String) throws -> PromptTemplate {
         let chars = Array(s)
         var placeholders: [PromptPlaceholder] = []

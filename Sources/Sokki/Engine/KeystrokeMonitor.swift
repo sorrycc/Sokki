@@ -236,7 +236,7 @@ final class KeystrokeMonitor {
             if let captured {
                 selectionText = captured
                 Logger.shared.error("[AI] selection captured len=\(captured.count) in \(captureMs)ms")
-            } else {
+            } else if template.requiresSelection {
                 Logger.shared.error("[AI] no selection (timeout=\(appConfig.ai.selectionCaptureTimeoutMs)ms, elapsed=\(captureMs)ms)")
                 if case .typedTrigger = invocation {
                     textInjector.injectDelta(match.trigger)
@@ -244,6 +244,12 @@ final class KeystrokeMonitor {
                 emitHUD(.aiFailed, trigger: match.trigger, note: "no selection")
                 tapContext.setSuppressMatching(false)
                 return
+            } else {
+                // Selection missing but some chain has a non-selection
+                // fallback (e.g. `{{s|c}}`). Leave selectionText = nil and let
+                // render() pick the next source; if every chain is unresolved
+                // the render-abort branch below will surface it.
+                Logger.shared.error("[AI] selection missing — falling back to chain (elapsed=\(captureMs)ms)")
             }
         }
 

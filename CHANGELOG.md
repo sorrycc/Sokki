@@ -13,6 +13,7 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Settings match list** now shows a blue `AI · <input>` capsule next to AI-backed matches, matching the command palette's badge.
 - Trimmed the starter **match/default.yml** seeded on first launch: removed the two AI-rewrite examples so fresh installs don't reference the `claude` CLI before users opt in.
 - Trigger matching is now resilient to in-flight corrections: fix a typo with ⌫ and keep typing, and the expansion still fires when the visible text ends with a trigger. ⌥⌫ / ⌘⌫ / arrow keys / Home / End / PageUp / PageDown safely invalidate the in-progress buffer.
+- **AI prompts** with chained placeholders like `{{s|c}}` now fall back to the clipboard when no text is selected, instead of aborting with a "no selection" error. Prompts that require selection (`{{s}}` alone) still fail loudly as before.
 
 
 ## 0.0.8 - 2026-04-22
