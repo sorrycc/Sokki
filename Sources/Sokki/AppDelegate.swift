@@ -11,11 +11,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let activationCoordinator = ActivationPolicyCoordinator()
     private let keystrokeMonitor = KeystrokeMonitor()
     private let bootstrapper = Bootstrapper()
+    private let permissionMonitor = PermissionMonitor()
     private var fsEventStream: FSEventStreamRef?
     private var debounceTimer: Timer?
     private var updater: UpdaterService?
     private var crashReporter: CrashReporter?
     private var telemetry: TelemetryService?
+    private var isRelaunching = false
 
     private lazy var recencyStore = RecencyStore(configDir: configDir)
 
@@ -26,8 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Bootstrap config on first launch
         bootstrapper.run()
 
-        // Check accessibility
+        // Check accessibility + arm post-grant relaunch prompt
         checkAccessibilityPermission()
+        permissionMonitor.onGranted = { [weak self] in
+            self?.showAccessibilityRelaunchAlert()
+        }
+        permissionMonitor.startIfNeeded()
 
         // Sparkle is only wired up for release bundles that carry SUFeedURL in Info.plist —
         // `swift run` dev builds skip the init to avoid the assertion crash.
@@ -189,6 +195,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController.onQuit = {
             NSApplication.shared.terminate(nil)
         }
+
+        statusItemController.onRelaunch = { [weak self] in
+            self?.relaunchApp()
+        }
     }
 
     // MARK: - Reload
@@ -218,6 +228,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let trusted = AXIsProcessTrustedWithOptions(options)
         if !trusted {
             Logger.shared.warning("Accessibility permission not granted")
+        }
+    }
+
+    private func showAccessibilityRelaunchAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Accessibility granted — restart to start working"
+        alert.informativeText = "Sokki needs to restart before it can read keystrokes. Relaunch now?"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Quit & Reopen")
+        alert.addButton(withTitle: "Later")
+
+        // macOS Tahoe gates alert frontmost-ness on `.regular` activation.
+        // Use a self-contained save/restore rather than `activationCoordinator`:
+        // SokkiApp.init's Settings-open path flips policy directly without a
+        // lease, so coupling the alert to the coordinator could mis-count.
+        let priorPolicy = NSApp.activationPolicy()
+        if priorPolicy == .accessory {
+            NSApp.setActivationPolicy(.regular)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+
+        let response = alert.runModal()
+
+        if priorPolicy == .accessory {
+            NSApp.setActivationPolicy(.accessory)
+        }
+
+        if response == .alertFirstButtonReturn {
+            relaunchApp()
+        }
+    }
+
+    private func relaunchApp() {
+        guard !isRelaunching else { return }
+
+        let bundleURL = Bundle.main.bundleURL
+        guard bundleURL.pathExtension == "app" else {
+            Logger.shared.warning("Quit & Reopen: not an .app bundle (\(bundleURL.path)) — ignoring")
+            return
+        }
+
+        isRelaunching = true
+
+        let proc = Process()
+        proc.launchPath = "/usr/bin/open"
+        proc.arguments = ["-n", "-a", bundleURL.path]
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            Logger.shared.error("Quit & Reopen: failed to spawn open: \(error)")
+            isRelaunching = false
+            return
+        }
+        guard proc.terminationStatus == 0 else {
+            Logger.shared.error("Quit & Reopen: open exited \(proc.terminationStatus) — aborting terminate")
+            isRelaunching = false
+            return
+        }
+
+        // ~250ms lets the new instance register its status item before the old
+        // one exits. Heuristic, not a guarantee — cold-launch time varies.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            NSApp.terminate(nil)
         }
     }
 

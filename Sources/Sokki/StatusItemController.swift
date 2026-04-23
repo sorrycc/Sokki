@@ -14,6 +14,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     var onShowLog: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
+    var onRelaunch: (() -> Void)?
     var onQuit: (() -> Void)?
 
     override init() {
@@ -170,6 +171,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let relaunchItem = NSMenuItem(
+            title: "Quit & Reopen",
+            action: #selector(relaunchApp),
+            keyEquivalent: ""
+        )
+        relaunchItem.target = self
+        menu.addItem(relaunchItem)
+
         let quitItem = NSMenuItem(
             title: "Quit",
             action: #selector(quitApp),
@@ -201,6 +210,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func checkForUpdates() {
         onCheckForUpdates?()
+    }
+
+    @objc private func relaunchApp() {
+        onRelaunch?()
     }
 
     @objc private func quitApp() {
