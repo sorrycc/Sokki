@@ -8,6 +8,7 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 - After granting Accessibility permission, Sokki now prompts with a "Quit & Reopen" alert so the event tap can start without a manual restart. Also added a permanent **Quit & Reopen** entry to the menu bar for other cases (permission revoked while running, stale TCC, etc).
 - Match editor's **Source File** field now supports creating a new file inline: click the "+" button next to the picker, type a filename (`.yml` is appended automatically), and the new YAML file is written under `~/.config/sokki/match/` on Save. Typing an existing name (case-insensitive, including cross-extension `foo.yml` ≡ `foo.yaml`) silently selects it.
+- Fix: app icon no longer shows a white border in the Dock / Finder. The bundled `AppIcon.icns` had opaque white padding around the squircle; regenerated with transparent corners.
 
 
 ## 0.0.8 - 2026-04-22
