@@ -99,8 +99,8 @@ struct PaletteView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                if let ai = match.ai {
-                    Text("AI · \(ai.input.rawValue)")
+                if match.isAI {
+                    Text("AI")
                         .font(.caption.bold())
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6).padding(.vertical, 1)
@@ -116,18 +116,17 @@ struct PaletteView: View {
     }
 
     private func previewLine(_ match: Match) -> String {
-        if let ai = match.ai {
-            return firstLine(ai.prompt)
+        if let prompt = match.prompt {
+            return firstLine(renderPlaceholdersAsGlyphs(prompt))
         }
         return firstLine(match.replace)
     }
 
-    private func aiPreview(_ ai: AIConfig) -> some View {
+    private func aiPreview(_ prompt: String) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                labelledBlock("PROMPT", ai.prompt)
-                labelledBlock("INPUT", aiInputDescription(ai.input))
-                Text("Runs Claude haiku via the local `claude` CLI. Result will replace the placeholder “\(PaletteView.placeholderText)”.")
+                labelledBlock("PROMPT", prompt)
+                Text("Runs Claude (\(matchStore.config.ai.model)) via the local `claude` CLI. `{{selection}}` / `{{clipboard}}` placeholders are filled at run time. Result replaces the placeholder “\(PaletteView.placeholderText)”.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -150,19 +149,33 @@ struct PaletteView: View {
         }
     }
 
-    private func aiInputDescription(_ input: AIInput) -> String {
-        switch input {
-        case .selection: return "current selection (copied via ⌘C; replaces selection with result)"
-        case .clipboard: return "current clipboard text (injected at cursor)"
-        case .none:      return "none (pure generation at cursor)"
+    /// Render `{{selection}}` / `{{s|c}}` as `⟨selection⟩` / `⟨s|c⟩` for
+    /// compact list subtitles. Uses `PromptTemplate.parse` when possible;
+    /// falls back to the raw prompt on parse failure (defensive — the match
+    /// decoder should have rejected any unparseable prompt).
+    private func renderPlaceholdersAsGlyphs(_ prompt: String) -> String {
+        guard let tpl = try? PromptTemplate.parse(prompt) else { return prompt }
+        let chars = Array(prompt)
+        var out = ""
+        var cursor = 0
+        for ph in tpl.placeholders {
+            if cursor < ph.location {
+                out.append(String(chars[cursor..<ph.location]))
+            }
+            out.append("⟨\(ph.innerRaw.trimmingCharacters(in: .whitespaces))⟩")
+            cursor = ph.location + ph.length
         }
+        if cursor < chars.count {
+            out.append(String(chars[cursor..<chars.count]))
+        }
+        return out
     }
 
     private var previewPane: some View {
         Group {
             if let m = selectedMatch {
-                if let ai = m.ai {
-                    aiPreview(ai)
+                if let prompt = m.prompt {
+                    aiPreview(prompt)
                 } else {
                     ScrollView {
                         Text(renderer.renderPreview(m.replace, clipboardSnapshot: clipboardSnapshot))

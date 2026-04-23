@@ -3,12 +3,15 @@ import SwiftUI
 struct MatchEditorView: View {
     @State private var trigger: String
     @State private var replace: String
+    @State private var prompt: String
+    @State private var isAI: Bool
     @State private var label: String
     @State private var isEnabled: Bool
     @State private var sourceFile: String
     @State private var isAddingNewFile = false
     @State private var newFileDraft = ""
     @State private var extraFiles: [String] = []
+    @State private var promptError: String?
     @FocusState private var newFileFieldFocused: Bool
     private let existingId: UUID?
     private let availableFiles: [String]
@@ -31,6 +34,8 @@ struct MatchEditorView: View {
     ) {
         self._trigger = State(initialValue: match?.trigger ?? initialTrigger ?? ":")
         self._replace = State(initialValue: match?.replace ?? "")
+        self._prompt = State(initialValue: match?.prompt ?? "")
+        self._isAI = State(initialValue: match?.prompt != nil)
         self._label = State(initialValue: match?.label ?? "")
         self._isEnabled = State(initialValue: match?.isEnabled ?? true)
         self._sourceFile = State(initialValue: match?.sourceFile ?? prefillSourceFile)
@@ -75,11 +80,30 @@ struct MatchEditorView: View {
                     }
                 }
 
-                Section("Replacement") {
-                    TextEditor(text: $replace)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 80)
-                        .help("The text to insert. Use {{clipboard}} and {{date:format}} for variables.")
+                Toggle("AI prompt", isOn: $isAI)
+                    .help("Route this match through the Claude CLI instead of plain text replacement.")
+
+                if isAI {
+                    Section("Prompt") {
+                        TextEditor(text: $prompt)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 100)
+                        Text("Use `{{selection}}`, `{{clipboard}}`, alias `s`/`c`, or fallback `{{s|c}}`.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let promptError {
+                            Text(promptError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                } else {
+                    Section("Replacement") {
+                        TextEditor(text: $replace)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 80)
+                            .help("The text to insert. Use {{clipboard}} and {{date:format}} for variables.")
+                    }
                 }
 
                 Toggle("Enabled", isOn: $isEnabled)
@@ -95,24 +119,56 @@ struct MatchEditorView: View {
                 Spacer()
 
                 Button("Save") {
-                    let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
-                    let match = Match(
-                        id: existingId ?? UUID(),
-                        trigger: trigger,
-                        replace: replace,
-                        label: trimmedLabel.isEmpty ? nil : trimmedLabel,
-                        isEnabled: isEnabled,
-                        sourceFile: sourceFile
-                    )
-                    onSave(match)
+                    save()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(trigger.isEmpty || replace.isEmpty)
+                .disabled(!canSave)
             }
             .padding(.horizontal)
         }
         .padding()
-        .frame(minWidth: 400, minHeight: 300)
+        .frame(minWidth: 400, minHeight: 340)
+        .onChange(of: prompt) { _, _ in promptError = nil }
+        .onChange(of: isAI) { _, _ in promptError = nil }
+    }
+
+    private var canSave: Bool {
+        if trigger.isEmpty { return false }
+        if isAI { return !prompt.isEmpty }
+        return !replace.isEmpty
+    }
+
+    private func save() {
+        let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
+        if isAI {
+            do {
+                _ = try PromptTemplate.parse(prompt)
+            } catch {
+                promptError = error.localizedDescription
+                return
+            }
+            let match = Match(
+                id: existingId ?? UUID(),
+                trigger: trigger,
+                replace: "",
+                prompt: prompt,
+                label: trimmedLabel.isEmpty ? nil : trimmedLabel,
+                isEnabled: isEnabled,
+                sourceFile: sourceFile
+            )
+            onSave(match)
+        } else {
+            let match = Match(
+                id: existingId ?? UUID(),
+                trigger: trigger,
+                replace: replace,
+                prompt: nil,
+                label: trimmedLabel.isEmpty ? nil : trimmedLabel,
+                isEnabled: isEnabled,
+                sourceFile: sourceFile
+            )
+            onSave(match)
+        }
     }
 
     @ViewBuilder

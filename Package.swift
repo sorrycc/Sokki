@@ -22,5 +22,13 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .testTarget(
+            name: "SokkiTests",
+            dependencies: ["Sokki"],
+            path: "Tests/SokkiTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
     ]
 )

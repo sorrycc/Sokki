@@ -151,7 +151,7 @@ final class PaletteController {
     private func commitInjection(_ match: Match) {
         // AI matches go through the keystroke monitor's AI flow. The monitor
         // owns focus-poll + selection capture + placeholder + run + cleanup.
-        if match.ai != nil {
+        if match.isAI {
             let target = targetApp
             let trigger = match.trigger
             close(reactivateTarget: true)

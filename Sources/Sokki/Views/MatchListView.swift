@@ -296,7 +296,7 @@ struct MatchRow: View {
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(match.isEnabled ? .primary : .secondary)
 
-                Text(match.replace)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -313,8 +313,8 @@ struct MatchRow: View {
                     .truncationMode(.middle)
             }
 
-            if let ai = match.ai {
-                Text("AI · \(ai.input.rawValue)")
+            if match.isAI {
+                Text("AI")
                     .font(.caption.bold())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6).padding(.vertical, 1)
@@ -332,5 +332,26 @@ struct MatchRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private var subtitle: String {
+        if let prompt = match.prompt {
+            guard let tpl = try? PromptTemplate.parse(prompt) else { return prompt }
+            let chars = Array(prompt)
+            var out = ""
+            var cursor = 0
+            for ph in tpl.placeholders {
+                if cursor < ph.location {
+                    out.append(String(chars[cursor..<ph.location]))
+                }
+                out.append("⟨\(ph.innerRaw.trimmingCharacters(in: .whitespaces))⟩")
+                cursor = ph.location + ph.length
+            }
+            if cursor < chars.count {
+                out.append(String(chars[cursor..<chars.count]))
+            }
+            return out
+        }
+        return match.replace
     }
 }

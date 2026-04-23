@@ -4,9 +4,9 @@ import Foundation
 final class AIRewriter {
     struct Request: Sendable {
         let prompt: String
-        let input: String?
         let model: String
         let timeout: TimeInterval
+        let userArgs: [String]?
     }
 
     enum Event: Sendable {
@@ -55,34 +55,21 @@ final class AIRewriter {
             return .failed(.binaryMissing)
         }
 
-        let inputLen = req.input?.count ?? 0
+        let canon = Self.canonicalizeArgs(
+            userArgs: req.userArgs,
+            model: req.model,
+            systemPromptAppend: systemPromptAppend
+        )
+        for line in canon.logs { Logger.shared.error(line) }
+
         Logger.shared.error(
-            "[AI] run binary=\(binary.path) model=\(req.model) timeout=\(Int(req.timeout))s inputLen=\(inputLen) gen=\(myGen)"
+            "[AI] run binary=\(binary.path) model=\(req.model) timeout=\(Int(req.timeout))s promptLen=\(req.prompt.count) gen=\(myGen)"
         )
 
-        let task = Task<Event, Never> { [runner, scratchCwd, systemPromptAppend] in
-            // NOTE: `--bare` is NOT passed. The CLI's `--bare` mode skips
-            // credential loading for Claude subscriptions and returns
-            // "Not logged in" even when `claude auth status` shows logged in.
-            // Scratch cwd + `--tools ""` still prevent project CLAUDE.md
-            // and tool access respectively. Cost is ~$0.01/call instead of
-            // the ~$0.002 `--bare` would have given us.
-            let args: [String] = [
-                "--print",
-                "--tools", "",
-                "--model", req.model,
-                "--output-format", "json",
-                "--max-turns", "1",
-                "--no-session-persistence",
-                "--append-system-prompt", systemPromptAppend,
-            ]
+        let args = canon.args
+        let stdin = req.prompt.data(using: .utf8) ?? Data()
 
-            var payload = req.prompt
-            if let input = req.input, !input.isEmpty {
-                payload += "\n\n" + input
-            }
-            let stdin = payload.data(using: .utf8) ?? Data()
-
+        let task = Task<Event, Never> { [runner, scratchCwd] in
             return await Self.execute(
                 runner: runner,
                 executable: binary,
@@ -108,6 +95,109 @@ final class AIRewriter {
         currentTask = nil
     }
 
+    // MARK: - Arg canonicalisation (pure, testable)
+
+    struct CanonicalArgs: Equatable, Sendable {
+        let args: [String]
+        let logs: [String]
+    }
+
+    /// Applies the force-floor (`--print`, `--output-format json`,
+    /// `--append-system-prompt`) and the `--model` convenience injection.
+    /// See `docs/designs/2026-04-23-ai-templated-prompts.md` §3.
+    nonisolated static func canonicalizeArgs(
+        userArgs: [String]?,
+        model: String,
+        systemPromptAppend: String
+    ) -> CanonicalArgs {
+        let defaults: [String] = [
+            "--print",
+            "--tools", "",
+            "--output-format", "json",
+            "--max-turns", "1",
+            "--no-session-persistence",
+            "--append-system-prompt", systemPromptAppend,
+        ]
+
+        var args = userArgs ?? defaults
+        var logs: [String] = []
+
+        // --output-format json (value-bearing flag; force)
+        forceValue(
+            args: &args,
+            flag: "--output-format",
+            required: "json",
+            logs: &logs
+        )
+
+        // --append-system-prompt <systemPromptAppend> (value-bearing; force)
+        forceValue(
+            args: &args,
+            flag: "--append-system-prompt",
+            required: systemPromptAppend,
+            logs: &logs,
+            redactValues: true
+        )
+
+        // --print (flag-only; insert if absent)
+        forceFlag(args: &args, flag: "--print", logs: &logs)
+
+        // --model <model> (convenience; only inject if absent and model non-empty)
+        if !model.isEmpty, Self.indexOfFlag("--model", in: args) == nil {
+            args.append(contentsOf: ["--model", model])
+        }
+
+        return CanonicalArgs(args: args, logs: logs)
+    }
+
+    private nonisolated static func forceValue(
+        args: inout [String],
+        flag: String,
+        required: String,
+        logs: inout [String],
+        redactValues: Bool = false
+    ) {
+        if let idx = Self.indexOfFlag(flag, in: args) {
+            let valueIdx = idx + 1
+            if valueIdx < args.count {
+                let existing = args[valueIdx]
+                if existing == required { return } // no-op
+                args[valueIdx] = required
+                let shownOld = redactValues ? truncate(existing) : existing
+                let shownNew = redactValues ? truncate(required) : required
+                logs.append("[AI] overrode \(flag)=\(shownNew) (user had: \(shownOld))")
+            } else {
+                // Flag without value — replace in place with flag+value.
+                args.append(required)
+                let shownNew = redactValues ? truncate(required) : required
+                logs.append("[AI] inserted value for dangling \(flag)=\(shownNew)")
+            }
+        } else {
+            args.append(contentsOf: [flag, required])
+            let shownNew = redactValues ? truncate(required) : required
+            logs.append("[AI] inserted \(flag)=\(shownNew) (user did not set)")
+        }
+    }
+
+    private nonisolated static func forceFlag(
+        args: inout [String],
+        flag: String,
+        logs: inout [String]
+    ) {
+        if Self.indexOfFlag(flag, in: args) != nil { return }
+        args.append(flag)
+        logs.append("[AI] inserted \(flag) (user did not set)")
+    }
+
+    private nonisolated static func indexOfFlag(_ flag: String, in args: [String]) -> Int? {
+        args.firstIndex(of: flag)
+    }
+
+    private nonisolated static func truncate(_ s: String, limit: Int = 40) -> String {
+        if s.count <= limit { return "\"\(s)\"" }
+        return "\"\(s.prefix(limit))…\""
+    }
+
     // MARK: - Private
 
     nonisolated private static func execute(
@@ -118,8 +208,6 @@ final class AIRewriter {
         stdin: Data,
         timeout: TimeInterval
     ) async -> Event {
-        // Throwing task group so Task.sleep cancellation propagates cleanly
-        // and the runner-first path can cancel the sleep child immediately.
         let timeoutNs = UInt64(timeout * 1_000_000_000)
 
         do {
@@ -150,7 +238,6 @@ final class AIRewriter {
                     return .failed(.timeout)
                 }
 
-                // First child to produce a value wins; cancel the rest.
                 let first = try await group.next() ?? .failed(.protocolError("no result"))
                 group.cancelAll()
                 return first
@@ -167,8 +254,6 @@ final class AIRewriter {
             "[AI] process exit=\(result.exitCode) stdoutBytes=\(result.stdoutData.count) stderrLen=\(result.stderrTail.count)"
         )
 
-        // Auth failure detection — CLI prints a sign-in hint on stderr and
-        // typically exits non-zero before producing JSON.
         let stderrLower = result.stderrTail.lowercased()
         let authHints = ["log in", "logged in", "authenticate", "not signed in", "sign in"]
         if result.exitCode != 0, authHints.contains(where: { stderrLower.contains($0) }) {

@@ -12,11 +12,7 @@ struct AppConfig: Codable, Sendable, Equatable {
     var hudShortcut: String = "none"
     var paletteShortcut: String = "none"
 
-    // AI settings
-    var aiBinaryPath: String? = nil
-    var aiModel: String = "haiku"
-    var aiTimeoutSeconds: Int = 30
-    var aiSelectionCaptureTimeoutMs: Int = 400
+    var ai: AISettings = .init()
 
     enum CodingKeys: String, CodingKey {
         case isEnabled = "enable"
@@ -29,15 +25,30 @@ struct AppConfig: Codable, Sendable, Equatable {
         case toggleShortcut = "toggle_shortcut"
         case hudShortcut = "hud_shortcut"
         case paletteShortcut = "palette_shortcut"
-        case aiBinaryPath = "ai_binary_path"
-        case aiModel = "ai_model"
-        case aiTimeoutSeconds = "ai_timeout_seconds"
-        case aiSelectionCaptureTimeoutMs = "ai_selection_capture_timeout_ms"
+        case ai
     }
+
+    static let legacyAIKeys: [String] = [
+        "ai_binary_path",
+        "ai_model",
+        "ai_timeout_seconds",
+        "ai_selection_capture_timeout_ms",
+    ]
 
     init() {}
 
     init(from decoder: Decoder) throws {
+        // Reject legacy flat `ai_*` keys before lenient decoding.
+        let raw = try decoder.container(keyedBy: AnyStringKey.self)
+        for legacy in AppConfig.legacyAIKeys {
+            if raw.contains(AnyStringKey(stringValue: legacy)) {
+                throw ConfigLoadIssue.legacyKey(
+                    key: legacy,
+                    hint: "move under the `ai:` table (e.g. `ai.binary`, `ai.model`)"
+                )
+            }
+        }
+
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.isEnabled = (try? container.decode(Bool.self, forKey: .isEnabled)) ?? true
         self.clipboardThreshold = (try? container.decode(Int.self, forKey: .clipboardThreshold)) ?? 50
@@ -49,9 +60,9 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.toggleShortcut = (try? container.decode(String.self, forKey: .toggleShortcut)) ?? "none"
         self.hudShortcut = (try? container.decode(String.self, forKey: .hudShortcut)) ?? "none"
         self.paletteShortcut = (try? container.decode(String.self, forKey: .paletteShortcut)) ?? "none"
-        self.aiBinaryPath = try? container.decodeIfPresent(String.self, forKey: .aiBinaryPath)
-        self.aiModel = (try? container.decode(String.self, forKey: .aiModel)) ?? "haiku"
-        self.aiTimeoutSeconds = (try? container.decode(Int.self, forKey: .aiTimeoutSeconds)) ?? 30
-        self.aiSelectionCaptureTimeoutMs = (try? container.decode(Int.self, forKey: .aiSelectionCaptureTimeoutMs)) ?? 400
+        // `ai` decoding propagates `ConfigLoadIssue.invalidAIArg` (e.g. from
+        // AISettings.validateArgs) rather than silently defaulting — we want
+        // bad args to surface, not vanish.
+        self.ai = (try container.decodeIfPresent(AISettings.self, forKey: .ai)) ?? AISettings()
     }
 }

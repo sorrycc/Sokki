@@ -38,7 +38,7 @@ final class KeystrokeMonitor {
         let onMatch: @Sendable (Match, Int) -> Void = { [weak self] match, triggerLength in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if match.ai != nil {
+                if match.isAI {
                     Task { @MainActor in
                         await self.handleAIMatch(match: match, triggerLength: triggerLength)
                     }
@@ -174,7 +174,19 @@ final class KeystrokeMonitor {
     }
 
     private func runAIFlow(match: Match, invocation: AIInvocation) async {
-        guard let ai = match.ai else {
+        guard let promptRaw = match.prompt else {
+            tapContext.setSuppressMatching(false)
+            return
+        }
+
+        // Parse the template. Validated at load, so parse cannot fail for a
+        // match that reached us; treat a throw as a protocol error.
+        let template: PromptTemplate
+        do {
+            template = try PromptTemplate.parse(promptRaw)
+        } catch {
+            Logger.shared.error("[AI] template parse failed (should not happen): \(error.localizedDescription)")
+            emitHUD(.aiFailed, trigger: match.trigger, note: "bad prompt")
             tapContext.setSuppressMatching(false)
             return
         }
@@ -190,7 +202,7 @@ final class KeystrokeMonitor {
 
         let started = Date()
         Logger.shared.error(
-            "[AI] match trigger=\(match.trigger) invocation=\(invocation.label) input=\(ai.input.rawValue) promptLen=\(ai.prompt.count) model=\(appConfig.aiModel)"
+            "[AI] match trigger=\(match.trigger) invocation=\(invocation.label) promptLen=\(promptRaw.count) placeholders=\(template.placeholders.count) model=\(appConfig.ai.model)"
         )
 
         // Idempotent: palette path needs this set; typed path already has it.
@@ -204,23 +216,28 @@ final class KeystrokeMonitor {
             break
         }
 
-        // Capture AI input.
-        var inputText: String? = nil
-        switch ai.input {
-        case .selection:
+        // Capture inputs, in this order: clipboard FIRST (before Cmd-C
+        // overwrites the pasteboard), then selection via Cmd-C.
+        var clipboardText: String? = nil
+        if template.needsClipboard {
+            let s = NSPasteboard.general.string(forType: .string) ?? ""
+            clipboardText = s
+            Logger.shared.error("[AI] clipboard snapshot len=\(s.count)")
+        }
+
+        var selectionText: String? = nil
+        if template.needsSelection {
             let captureStart = Date()
             let captured = await captureSelectionViaCmdC(
-                timeoutMs: appConfig.aiSelectionCaptureTimeoutMs,
+                timeoutMs: appConfig.ai.selectionCaptureTimeoutMs,
                 invocation: invocation
             )
             let captureMs = Int(Date().timeIntervalSince(captureStart) * 1000)
             if let captured {
-                inputText = captured
+                selectionText = captured
                 Logger.shared.error("[AI] selection captured len=\(captured.count) in \(captureMs)ms")
             } else {
-                Logger.shared.error("[AI] no selection (timeout=\(appConfig.aiSelectionCaptureTimeoutMs)ms, elapsed=\(captureMs)ms)")
-                // Typed path: re-inject the trigger literal so the user sees
-                // their typing intact. Palette path: nothing to re-inject.
+                Logger.shared.error("[AI] no selection (timeout=\(appConfig.ai.selectionCaptureTimeoutMs)ms, elapsed=\(captureMs)ms)")
                 if case .typedTrigger = invocation {
                     textInjector.injectDelta(match.trigger)
                 }
@@ -228,13 +245,19 @@ final class KeystrokeMonitor {
                 tapContext.setSuppressMatching(false)
                 return
             }
-        case .clipboard:
-            let s = NSPasteboard.general.string(forType: .string) ?? ""
-            inputText = s
-            Logger.shared.error("[AI] clipboard input len=\(s.count)")
-        case .none:
-            inputText = nil
-            Logger.shared.error("[AI] no input")
+        }
+
+        // Render. If any placeholder chain is all-empty, abort with a HUD
+        // note naming the offending placeholder.
+        guard let rendered = template.render(selection: selectionText, clipboard: clipboardText) else {
+            let chain = template.firstUnresolvedChain(selection: selectionText, clipboard: clipboardText) ?? "{{…}}"
+            Logger.shared.error("[AI] render aborted: no input for \(chain)")
+            if case .typedTrigger = invocation {
+                textInjector.injectDelta(match.trigger)
+            }
+            emitHUD(.aiFailed, trigger: match.trigger, note: "no input for \(chain)")
+            tapContext.setSuppressMatching(false)
+            return
         }
 
         // Inject placeholder while still suppressed. For palette+selection
@@ -255,12 +278,12 @@ final class KeystrokeMonitor {
         Logger.shared.error("[AI] placeholder injected, dispatching request")
 
         let request = AIRewriter.Request(
-            prompt: ai.prompt,
-            input: inputText,
-            model: appConfig.aiModel,
-            timeout: TimeInterval(appConfig.aiTimeoutSeconds)
+            prompt: rendered,
+            model: appConfig.ai.model,
+            timeout: TimeInterval(appConfig.ai.timeoutSeconds),
+            userArgs: appConfig.ai.args
         )
-        let event = await aiRewriter.run(request, aiBinaryPath: appConfig.aiBinaryPath)
+        let event = await aiRewriter.run(request, aiBinaryPath: appConfig.ai.binary)
 
         endAIMouseWatch()
         let typed = tapContext.consumeUserTypedDuringAI()
@@ -282,8 +305,6 @@ final class KeystrokeMonitor {
                     note: "result appended; “▎ thinking…” left inline — delete manually"
                 )
             }
-            // recordExpansion only for typed triggers — palette-invoked matches
-            // have no typed trigger in the text to backspace-undo back to.
             if case .typedTrigger = invocation {
                 tapContext.recordExpansion(trigger: match.trigger, replacement: text)
             }
@@ -293,7 +314,7 @@ final class KeystrokeMonitor {
             Logger.shared.error("[AI] failed reason=\(reasonString(reason)) typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
             restoreAfterAIFailure(
                 trigger: match.trigger,
-                selection: (ai.input == .selection) ? inputText : nil,
+                selection: selectionText,
                 placeholderLength: placeholderLength,
                 typed: typed,
                 invocation: invocation
@@ -304,7 +325,7 @@ final class KeystrokeMonitor {
             Logger.shared.error("[AI] cancelled typedDuringWait=\(typed) elapsed=\(elapsedMs)ms")
             restoreAfterAIFailure(
                 trigger: match.trigger,
-                selection: (ai.input == .selection) ? inputText : nil,
+                selection: selectionText,
                 placeholderLength: placeholderLength,
                 typed: typed,
                 invocation: invocation
