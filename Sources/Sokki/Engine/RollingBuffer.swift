@@ -25,6 +25,13 @@ struct RollingBuffer: Sendable {
         head = 0
     }
 
+    @discardableResult
+    mutating func popLast() -> Bool {
+        guard count > 0 else { return false }
+        count -= 1
+        return true
+    }
+
     func tail(_ length: Int) -> String {
         guard length > 0, length <= count else { return "" }
         var result: [Character] = []

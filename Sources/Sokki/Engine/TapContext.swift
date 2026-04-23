@@ -109,6 +109,11 @@ final class TapContext: @unchecked Sendable {
             // Handle backspace.
             let backspaceKeyCode: UInt16 = 0x33
             if keyCode == backspaceKeyCode {
+                if modifierFlags.contains(.maskAlternate) || modifierFlags.contains(.maskCommand) {
+                    invalidateMatchingState(&state)
+                    Logger.shared.debug("Word/line delete clear: flags=\(modifierFlags.rawValue)")
+                    return FeedResult(action: .none)
+                }
                 let undoResult = state.undoManager.handleBackspace()
                 switch undoResult {
                 case .undo(let trigger):
@@ -116,8 +121,17 @@ final class TapContext: @unchecked Sendable {
                     state.matcher.reset()
                     return FeedResult(action: .undo(restoreTrigger: trigger))
                 case .none:
-                    break
+                    rebuildAfterBackspace(&state)
+                    Logger.shared.debug("Rewind: popped, remaining=\(state.buffer.currentCount)")
+                    return FeedResult(action: .none)
                 }
+            }
+
+            // Caret-move keys invalidate buffer (caret moved away from our
+            // tracked position, so subsequent typing is no longer contiguous).
+            if isCaretControlKey(keyCode) {
+                invalidateMatchingState(&state)
+                Logger.shared.debug("Caret-move clear: keyCode=\(keyCode)")
                 return FeedResult(action: .none)
             }
 
@@ -127,8 +141,10 @@ final class TapContext: @unchecked Sendable {
             // Append to buffer.
             state.buffer.append(character)
 
-            // Feed to trie matcher.
+            // Feed to trie matcher. Clear buffer on fire so a later rewind
+            // can't resurrect consumed trigger chars into a pending match.
             if let result = state.matcher.feed(character) {
+                state.buffer.clear()
                 return FeedResult(action: .matched(
                     match: result.match,
                     triggerLength: result.triggerLength
@@ -298,5 +314,30 @@ final class TapContext: @unchecked Sendable {
 
     var isAIActive: Bool {
         lock.withLock { state in state.activeAIRequest }
+    }
+
+    // MARK: - Matching-state helpers (called inside lock.withLock)
+
+    private func isCaretControlKey(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 0x7B, 0x7C, 0x7D, 0x7E: return true // ← → ↓ ↑
+        case 0x73, 0x77, 0x74, 0x79: return true // Home, End, PageUp, PageDown
+        default: return false
+        }
+    }
+
+    private func invalidateMatchingState(_ state: inout State) {
+        state.undoManager.handleNonBackspaceKey()
+        state.buffer.clear()
+        state.matcher.reset()
+    }
+
+    private func rebuildAfterBackspace(_ state: inout State) {
+        guard state.buffer.popLast() else { return }
+        state.matcher.reset()
+        let remaining = state.buffer.toString()
+        for ch in remaining {
+            _ = state.matcher.feed(ch)
+        }
     }
 }
