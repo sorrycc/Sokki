@@ -313,6 +313,14 @@ struct MatchRow: View {
                     .truncationMode(.middle)
             }
 
+            if let ai = match.ai {
+                Text("AI · \(ai.input.rawValue)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Color.blue.opacity(0.7), in: Capsule())
+            }
+
             if !match.isEnabled {
                 Text("Disabled")
                     .font(.caption2)
