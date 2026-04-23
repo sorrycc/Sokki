@@ -299,6 +299,13 @@ final class TapContext: @unchecked Sendable {
         }
     }
 
+    /// Non-destructive read of `userTypedDuringAI`. Used by the AI placeholder
+    /// animation loop to self-cancel on real user input without consuming the
+    /// flag that the post-await completion branch also reads.
+    func peekUserTypedDuringAI() -> Bool {
+        lock.withLock { state in state.userTypedDuringAI }
+    }
+
     /// Atomically read `userTypedDuringAI` AND clear both AI flags. Callers
     /// on the completion/failure path must use this instead of a separate
     /// read + `setActiveAIRequest(false)` — the latter clears the flag

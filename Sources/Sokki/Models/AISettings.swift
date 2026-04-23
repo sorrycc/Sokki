@@ -1,16 +1,24 @@
 import Foundation
 
+enum PlaceholderStyle: String, Codable, Sendable, Equatable {
+    case `static`   = "static"
+    case braille    = "braille"
+    case blockSweep = "block_sweep"
+}
+
 struct AISettings: Codable, Sendable, Equatable {
     var binary: String? = nil
     var args: [String]? = nil
     var model: String = "haiku"
     var timeoutSeconds: Int = 30
     var selectionCaptureTimeoutMs: Int = 400
+    var placeholderStyle: PlaceholderStyle = .static
 
     enum CodingKeys: String, CodingKey {
         case binary, args, model
         case timeoutSeconds = "timeout_seconds"
         case selectionCaptureTimeoutMs = "selection_capture_timeout_ms"
+        case placeholderStyle = "placeholder_style"
     }
 
     init() {}
@@ -25,6 +33,7 @@ struct AISettings: Codable, Sendable, Equatable {
         self.model = (try? container.decode(String.self, forKey: .model)) ?? "haiku"
         self.timeoutSeconds = (try? container.decode(Int.self, forKey: .timeoutSeconds)) ?? 30
         self.selectionCaptureTimeoutMs = (try? container.decode(Int.self, forKey: .selectionCaptureTimeoutMs)) ?? 400
+        self.placeholderStyle = (try? container.decode(PlaceholderStyle.self, forKey: .placeholderStyle)) ?? .static
     }
 
     /// Reject `=`-form flags (`--foo=bar`). Structural, version-independent.

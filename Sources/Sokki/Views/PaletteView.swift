@@ -136,7 +136,7 @@ struct PaletteView: View {
         }
     }
 
-    private static let placeholderText = "▎ thinking…"
+    private static let placeholderText = "⟨generating…⟩"
 
     private func labelledBlock(_ label: String, _ body: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {

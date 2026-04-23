@@ -139,7 +139,23 @@ final class KeystrokeMonitor {
 
     // MARK: - AI flow
 
-    private static let placeholder = "▎ thinking…"
+    private static let placeholderWord = "generating…"
+    private static let brailleFrames: [Character] = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
+    private static let blockFrames:   [Character] = ["▏","▎","▍","▌","▋","▊","▉","█"]
+
+    private static func placeholderFrame(style: PlaceholderStyle, index: Int) -> String {
+        switch style {
+        case .static:
+            return placeholderWord
+        case .braille:
+            return String(brailleFrames[index % brailleFrames.count])
+        case .blockSweep:
+            return String(blockFrames[index % blockFrames.count])
+        }
+    }
+
+    private var animationTask: Task<Void, Never>?
+    private var aiPlaceholderLength: Int = 0
 
     enum AIInvocation: Sendable {
         case typedTrigger(length: Int)
@@ -266,11 +282,12 @@ final class KeystrokeMonitor {
             return
         }
 
-        // Inject placeholder while still suppressed. For palette+selection
+        // Inject placeholder (frame 0) while still suppressed. For palette+selection
         // this single unicode-string event replaces the still-live selection.
-        let placeholder = Self.placeholder
-        textInjector.injectDelta(placeholder)
-        let placeholderLength = placeholder.count
+        let style = appConfig.ai.placeholderStyle
+        let initialFrame = Self.placeholderFrame(style: style, index: 0)
+        textInjector.injectDelta(initialFrame)
+        aiPlaceholderLength = initialFrame.count
 
         // Drain the HID pipeline so our own synthesized events arrive at the
         // tap while suppressMatching is still true.
@@ -281,7 +298,8 @@ final class KeystrokeMonitor {
         beginAIMouseWatch()
 
         emitHUD(.aiThinking, trigger: match.trigger, note: nil)
-        Logger.shared.error("[AI] placeholder injected, dispatching request")
+        Logger.shared.error("[AI] placeholder injected (style=\(style.rawValue)), dispatching request")
+        startAnimationTaskIfNeeded(style: style)
 
         let request = AIRewriter.Request(
             prompt: rendered,
@@ -291,9 +309,14 @@ final class KeystrokeMonitor {
         )
         let event = await aiRewriter.run(request, aiBinaryPath: appConfig.ai.binary)
 
+        // Fence suppression BEFORE cancelling the animation so a cooperative
+        // resume in the listen window cannot flip suppressMatching back to false.
+        tapContext.setSuppressMatching(true)
+        animationTask?.cancel()
+        animationTask = nil
         endAIMouseWatch()
         let typed = tapContext.consumeUserTypedDuringAI()
-        tapContext.setSuppressMatching(true)
+        let placeholderLength = aiPlaceholderLength
         let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
 
         switch event {
@@ -308,7 +331,7 @@ final class KeystrokeMonitor {
                 emitHUD(
                     .aiCompleted,
                     trigger: match.trigger,
-                    note: "result appended; “▎ thinking…” left inline — delete manually"
+                    note: "result appended; loading indicator left inline — delete manually"
                 )
             }
             if case .typedTrigger = invocation {
@@ -357,6 +380,38 @@ final class KeystrokeMonitor {
             // Typed path: re-inject the trigger literal so the user's context
             // is preserved. Palette path: nothing to re-inject.
             textInjector.injectDelta(trigger)
+        }
+    }
+
+    /// Drive the animated placeholder (no-op for `.static`). Each frame cycle:
+    /// suppress → erase prior frame → inject next frame → drain 70ms → unsuppress →
+    /// listen 50ms. Self-cancels on user typing via a non-destructive peek so the
+    /// completion branch's atomic `consumeUserTypedDuringAI` is preserved.
+    private func startAnimationTaskIfNeeded(style: PlaceholderStyle) {
+        guard style != .static else { return }
+        animationTask?.cancel()
+        animationTask = Task { @MainActor [weak self] in
+            var index = 1 // frame 0 already injected by runAIFlow
+            // Show frame 0 for a full listen window before the first swap.
+            try? await Task.sleep(nanoseconds: 50_000_000)
+
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.tapContext.peekUserTypedDuringAI() { return }
+
+                self.tapContext.setSuppressMatching(true)
+                self.textInjector.eraseInjected(count: self.aiPlaceholderLength)
+                let frame = Self.placeholderFrame(style: style, index: index)
+                self.textInjector.injectDelta(frame)
+                self.aiPlaceholderLength = frame.count
+
+                try? await Task.sleep(nanoseconds: 70_000_000)
+                if Task.isCancelled { return }
+                self.tapContext.setSuppressMatching(false)
+
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                index &+= 1
+            }
         }
     }
 

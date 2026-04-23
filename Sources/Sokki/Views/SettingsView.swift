@@ -12,6 +12,9 @@ struct SettingsView: View {
             GeneralSettingsView(store: store)
                 .tabItem { Label("General", systemImage: "gear") }
 
+            AISettingsView(store: store)
+                .tabItem { Label("AI", systemImage: "sparkles") }
+
             PrivacySettingsView()
                 .tabItem { Label("Privacy", systemImage: "hand.raised") }
         }
@@ -117,5 +120,47 @@ struct GeneralSettingsView: View {
         } catch {
             Logger.shared.error("Failed to set launch at login: \(error.localizedDescription)")
         }
+    }
+}
+
+struct AISettingsView: View {
+    @Bindable var store: MatchStore
+
+    var body: some View {
+        Form {
+            Section("Model") {
+                TextField("Model", text: $store.config.ai.model)
+
+                TextField("Claude binary", text: binaryBinding, prompt: Text("Auto-detect"))
+                    .help("Path to the `claude` CLI. Leave blank to auto-detect: ~/.claude/local/claude, ~/.local/bin/claude, /opt/homebrew/bin/claude, /usr/local/bin/claude, then shell lookup.")
+
+                TextField("Timeout (seconds)", value: $store.config.ai.timeoutSeconds, format: .number)
+                    .help("Max seconds to wait for the AI response before failing.")
+
+                TextField("Selection capture timeout (ms)", value: $store.config.ai.selectionCaptureTimeoutMs, format: .number)
+            }
+
+            Section("Placeholder") {
+                Picker("Placeholder style", selection: $store.config.ai.placeholderStyle) {
+                    Text("Static").tag(PlaceholderStyle.static)
+                    Text("Braille").tag(PlaceholderStyle.braille)
+                    Text("Block sweep").tag(PlaceholderStyle.blockSweep)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .onChange(of: store.config) { _, _ in
+            store.saveConfig()
+        }
+    }
+
+    private var binaryBinding: Binding<String> {
+        Binding(
+            get: { store.config.ai.binary ?? "" },
+            set: { newValue in
+                store.config.ai.binary = newValue.isEmpty ? nil : newValue
+            }
+        )
     }
 }
