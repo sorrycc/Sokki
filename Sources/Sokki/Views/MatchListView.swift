@@ -80,6 +80,7 @@ struct MatchListView: View {
             MatchEditorView(
                 match: m,
                 availableFiles: store.availableSourceFiles,
+                allMatches: store.matches,
                 prefillSourceFile: m.sourceFile ?? "default.yml",
                 onSave: { updated in
                     store.update(updated)
@@ -91,6 +92,7 @@ struct MatchListView: View {
             MatchEditorView(
                 match: nil,
                 availableFiles: store.availableSourceFiles,
+                allMatches: store.matches,
                 prefillSourceFile: prefill,
                 initialTrigger: initial,
                 onSave: { m in
@@ -153,7 +155,7 @@ struct MatchListView: View {
     private var listBody: some View {
         List(selection: $selectedMatch) {
             ForEach(filteredMatches) { match in
-                MatchRow(match: match)
+                MatchRow(match: match, conflict: store.conflictsByMatchId[match.id])
                     .tag(match)
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -288,13 +290,22 @@ struct MatchListView: View {
 
 struct MatchRow: View {
     let match: Match
+    let conflict: ConflictReport?
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(match.trigger)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(match.isEnabled ? .primary : .secondary)
+                HStack(spacing: 6) {
+                    if let c = conflict, !c.isEmpty {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(c.hasDuplicate ? Color.red : Color.orange)
+                            .help(conflictTooltip(c))
+                            .accessibilityLabel(conflictTooltip(c))
+                    }
+                    Text(match.trigger)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(match.isEnabled ? .primary : .secondary)
+                }
 
                 Text(subtitle)
                     .font(.caption)
@@ -332,6 +343,35 @@ struct MatchRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func conflictTooltip(_ report: ConflictReport) -> String {
+        let duplicates = report.conflicts.filter { $0.kind == .duplicate }
+        let shadowedBy = report.conflicts.filter { $0.kind == .shadowedBy }
+
+        var parts: [String] = []
+        if !duplicates.isEmpty {
+            let others = duplicates.count
+            if let trigger = duplicates.first?.otherTrigger {
+                if others >= 2 {
+                    parts.append("Duplicate — \(others) other matches use \"\(trigger)\"")
+                } else {
+                    parts.append("Duplicate of \"\(trigger)\" — only one will fire")
+                }
+            }
+        }
+        if !shadowedBy.isEmpty {
+            let triggers = shadowedBy.map { "\"\($0.otherTrigger)\"" }
+            if triggers.count == 1 {
+                parts.append("Delayed by longer trigger \(triggers[0])")
+            } else {
+                let head = triggers.prefix(3).joined(separator: ", ")
+                let extra = triggers.count - 3
+                let suffix = extra > 0 ? " (+\(extra) more)" : ""
+                parts.append("Delayed by longer triggers \(head)\(suffix)")
+            }
+        }
+        return parts.joined(separator: "; ")
     }
 
     private var subtitle: String {

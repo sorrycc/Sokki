@@ -12,9 +12,11 @@ struct MatchEditorView: View {
     @State private var newFileDraft = ""
     @State private var extraFiles: [String] = []
     @State private var promptError: String?
+    @State private var triggerConflict: ConflictReport = .empty
     @FocusState private var newFileFieldFocused: Bool
     private let existingId: UUID?
     private let availableFiles: [String]
+    private let allMatches: [Match]
 
     private var displayedFiles: [String] {
         var seen = Set<String>()
@@ -27,6 +29,7 @@ struct MatchEditorView: View {
     init(
         match: Match? = nil,
         availableFiles: [String],
+        allMatches: [Match],
         prefillSourceFile: String,
         initialTrigger: String? = nil,
         onSave: @escaping (Match) -> Void,
@@ -41,6 +44,7 @@ struct MatchEditorView: View {
         self._sourceFile = State(initialValue: match?.sourceFile ?? prefillSourceFile)
         self.existingId = match?.id
         self.availableFiles = availableFiles
+        self.allMatches = allMatches
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -57,6 +61,14 @@ struct MatchEditorView: View {
                 TextField("Trigger", text: $trigger)
                     .font(.system(.body, design: .monospaced))
                     .help("The keyword that triggers expansion (e.g., :hello)")
+
+                if !triggerConflict.isEmpty {
+                    ForEach(editorConflictMessages(triggerConflict), id: \.self) { line in
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(triggerConflict.hasDuplicate ? Color.red : Color.orange)
+                    }
+                }
 
                 if isAddingNewFile {
                     newFileRow
@@ -130,6 +142,67 @@ struct MatchEditorView: View {
         .frame(minWidth: 400, minHeight: 340)
         .onChange(of: prompt) { _, _ in promptError = nil }
         .onChange(of: isAI) { _, _ in promptError = nil }
+        .onChange(of: trigger, initial: true) { _, newValue in
+            triggerConflict = TriggerConflictDetector.computeEditor(
+                draftTrigger: newValue,
+                matches: allMatches,
+                excludingId: existingId
+            )
+        }
+    }
+
+    private func editorConflictMessages(_ report: ConflictReport) -> [String] {
+        let duplicates = report.conflicts.filter { $0.kind == .duplicate }
+        let shadowedBy = report.conflicts.filter { $0.kind == .shadowedBy }
+        let shadows = report.conflicts.filter { $0.kind == .shadows }
+
+        var lines: [String] = []
+
+        if let dup = duplicates.first {
+            let count = duplicates.count
+            if count >= 2 {
+                lines.append("\(count) other matches already use \"\(dup.otherTrigger)\" — only one will fire")
+            } else {
+                lines.append("Another match already uses \"\(dup.otherTrigger)\" — only one will fire")
+            }
+        }
+
+        if !shadowedBy.isEmpty {
+            lines.append(formatPrefixLine(
+                shadowedBy,
+                singular: "Delayed by longer trigger",
+                plural: "Delayed by longer triggers"
+            ))
+        }
+
+        if !shadows.isEmpty {
+            let triggers = shadows.map { "\"\($0.otherTrigger)\"" }
+            if triggers.count == 1 {
+                lines.append("Extends existing trigger \(triggers[0]) — \(triggers[0]) will fire with a delay")
+            } else {
+                let head = triggers.prefix(3).joined(separator: ", ")
+                let extra = triggers.count - 3
+                let suffix = extra > 0 ? " (+\(extra) more)" : ""
+                lines.append("Extends existing triggers \(head)\(suffix) — they'll fire with a delay")
+            }
+        }
+
+        return lines
+    }
+
+    private func formatPrefixLine(
+        _ entries: [TriggerConflict],
+        singular: String,
+        plural: String
+    ) -> String {
+        let triggers = entries.map { "\"\($0.otherTrigger)\"" }
+        if triggers.count == 1 {
+            return "\(singular) \(triggers[0])"
+        }
+        let head = triggers.prefix(3).joined(separator: ", ")
+        let extra = triggers.count - 3
+        let suffix = extra > 0 ? " (+\(extra) more)" : ""
+        return "\(plural) \(head)\(suffix)"
     }
 
     private var canSave: Bool {
