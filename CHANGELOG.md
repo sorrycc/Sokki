@@ -7,6 +7,7 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 - Fix: pressing ⌘, in the **command palette** now brings the Settings window to the front instead of leaving it hidden behind the previously focused app.
+- **Release pipeline** now structurally verifies every packaged build (framework presence, rpath resolution, SwiftPM resource bundles, codesign) and launch-smokes the stapled app before distribution, auto-copying any missing SwiftPM resource bundles so new dependencies cannot silently ship a broken binary.
 
 
 ## 0.0.13 - 2026-04-24

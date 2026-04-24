@@ -77,6 +77,12 @@ fi
 echo "Stapling ticket to DMG..."
 xcrun stapler staple "${DMG_PATH}"
 
+# ---- launch smoke test on the stapled app ----
+# Catches dyld/Bundle.module crashes that would abort the app at main()
+# before any UI renders — the exact crash class seen in Shun 1.0.2/1.0.4.
+echo "Launch smoke test on stapled app..."
+./Scripts/verify_app.sh "${APP_BUNDLE}" --smoke
+
 # ---- zip the stapled app (distribution zip) ----
 echo "Creating distribution zip..."
 ditto -c -k --keepParent "${APP_BUNDLE}" "${ZIP_PATH}"

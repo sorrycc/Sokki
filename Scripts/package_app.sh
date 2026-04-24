@@ -93,6 +93,19 @@ fi
 echo "Embedding Sparkle from ${SPARKLE_FRAMEWORK}..."
 cp -R "${SPARKLE_FRAMEWORK}" "${FRAMEWORKS}/"
 
+# ---- Auto-copy SwiftPM resource bundles ----
+# Any SwiftPM target declaring `resources:` emits <Pkg>_<Target>.bundle next to
+# the release binary. At runtime Bundle.module looks for it beside the main
+# executable — shipping without triggers fatalError on first use. No Sokki dep
+# currently produces one, but hoisting this now means adding KeyboardShortcuts
+# or Defaults tomorrow Just Works.
+BIN_PATH=$(swift build --show-bin-path -c release)
+while IFS= read -r -d '' bundle_path; do
+    bundle_name=$(basename "${bundle_path}")
+    echo "[COPY] ${bundle_name}"
+    cp -R "${bundle_path}" "${CONTENTS}/Resources/"
+done < <(find "${BIN_PATH}" -maxdepth 1 -type d -name '*.bundle' -print0 2>/dev/null)
+
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -137,6 +150,25 @@ ${TELEMETRY_PLIST_KEYS}
 </plist>
 PLIST
 
+# ---- Sign any auto-copied SwiftPM resource bundles ----
+# Nested bundles must be signed before the outer `codesign --force` seals them,
+# otherwise notarization rejects any Mach-O helpers inside. `--options runtime`
+# only applies to bundles with Mach-O content; fall back without it for
+# resource-only bundles.
+while IFS= read -r -d '' spm_bundle; do
+    bundle_name=$(basename "${spm_bundle}")
+    echo "Code signing ${bundle_name}..."
+    codesign --force --options runtime --timestamp \
+             --sign "${SIGN_IDENTITY}" \
+             "${spm_bundle}" 2>/dev/null || \
+        codesign --force --timestamp \
+                 --sign "${SIGN_IDENTITY}" \
+                 "${spm_bundle}"
+done < <(find "${CONTENTS}/Resources" -maxdepth 1 -type d -name '*.bundle' -print0 2>/dev/null)
+
+# ---- Pre-sign structural verification ----
+./Scripts/verify_app.sh "${APP_BUNDLE}" --pre-sign
+
 # ---- Code sign: inside-out, hardened runtime ----
 # Sparkle.framework contains nested XPC services and helpers that must be signed first.
 # Re-sign them with our Developer ID so notarization accepts the whole bundle under our team.
@@ -173,5 +205,11 @@ codesign --force --options runtime --timestamp \
 
 echo "Verifying signature..."
 codesign --verify --strict --verbose=2 "${APP_BUNDLE}"
+
+# ---- Post-sign structural + codesign verification ----
+# Redundant with the line above but catches regressions in verify_app.sh's
+# codesign check — defense in depth for the exact class (silent shipping) this
+# verifier exists to prevent.
+./Scripts/verify_app.sh "${APP_BUNDLE}"
 
 echo "Done! ${APP_BUNDLE} is signed (not yet notarized)."
