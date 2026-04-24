@@ -71,6 +71,13 @@ struct MatchListView: View {
 
             footerToolbar
         }
+        .background {
+            Button("") { focus = .search }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
     }
 
     @ViewBuilder
@@ -206,7 +213,8 @@ struct MatchListView: View {
                 Image(systemName: "plus")
                     .frame(width: 22, height: 22)
             }
-            .help("Add match")
+            .keyboardShortcut("n", modifiers: .command)
+            .help("Add match (⌘N)")
 
             Button(action: {
                 if let match = selectedMatch {

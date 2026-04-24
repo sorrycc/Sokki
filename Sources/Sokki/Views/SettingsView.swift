@@ -4,22 +4,38 @@ import ServiceManagement
 
 struct SettingsView: View {
     @State var store: MatchStore
+    @State private var selectedTab: Int = 0
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             MatchListView(store: store)
                 .tabItem { Label("Matches", systemImage: "list.bullet") }
+                .tag(0)
 
             GeneralSettingsView(store: store)
                 .tabItem { Label("General", systemImage: "gear") }
+                .tag(1)
 
             AISettingsView(store: store)
                 .tabItem { Label("AI", systemImage: "sparkles") }
+                .tag(2)
 
             PrivacySettingsView()
                 .tabItem { Label("Privacy", systemImage: "hand.raised") }
+                .tag(3)
         }
         .frame(minWidth: 500, minHeight: 400)
+        .background {
+            Group {
+                Button("") { selectedTab = 0 }.keyboardShortcut("1", modifiers: .command)
+                Button("") { selectedTab = 1 }.keyboardShortcut("2", modifiers: .command)
+                Button("") { selectedTab = 2 }.keyboardShortcut("3", modifiers: .command)
+                Button("") { selectedTab = 3 }.keyboardShortcut("4", modifiers: .command)
+            }
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        }
     }
 }
 

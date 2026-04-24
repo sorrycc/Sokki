@@ -48,6 +48,16 @@ struct PaletteView: View {
             RoundedRectangle(cornerRadius: 12).strokeBorder(.separator, lineWidth: 0.5)
         )
         .onKeyPress(.escape) { onClose(); return .handled }
+        .background {
+            Button("") {
+                onClose()
+                NotificationCenter.default.post(name: .openSettings, object: nil)
+            }
+            .keyboardShortcut(",", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        }
         .onAppear {
             Logger.shared.debug("[Palette] view onAppear — searchFocused(before)=\(searchFocused)")
             selection = filtered.first?.match.id
