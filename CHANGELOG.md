@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 0.0.10 - 2026-04-24
 - **AI settings** now explains upfront that AI features are powered by your locally-installed Claude Code CLI.
 - Default log level is now `debug` instead of `error`, and routine AI / palette / Claude-binary messages no longer surface as errors — the log file stays useful without drowning in false alarms.
 - **Match list** and **Match editor** now flag trigger conflicts inline: a warning icon and tooltip mark duplicates (red) and triggers shadowed by longer ones (orange), and the editor warns live as you type a trigger that collides with or extends another match.
