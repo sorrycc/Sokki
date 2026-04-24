@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- Refreshed the bundled Sokki logo preview and clarified the icon-source workflow in the release-infrastructure design doc (`AppIcon.icns` is canonical; the PNG is a regenerated preview).
 
 
 ## 0.0.12 - 2026-04-24

@@ -111,32 +111,22 @@ bun release patch
       └─ git commit "release: 1.0.1" + tag v1.0.1 [+ push]
 ```
 
-## Icon migration (one-time, manual before first release)
+## Icon source
 
-Run once during implementation — moves the master PNG into the repo and
-pre-generates the `.icns`, after which the `tmp/` directory is no longer
-needed for builds.
-
-**Invariant**: master PNG must be **≥1024×1024 square** so the `512@2x`
-`.icns` slot is produced by down-scaling rather than up-scaling. Current
-`tmp/sokki-logo.png` is 2048×2048 — sufficient. If regenerating from a
-different source later, verify dimensions first (`sips -g pixelWidth -g
-pixelHeight <png>`).
+`Resources/AppIcon.icns` is the canonical source of truth for the app icon —
+it is the file the build pipeline consumes (see `Scripts/package_app.sh`).
+`Resources/sokki-logo.png` is a 1024×1024 preview extracted from the icns for
+README/docs use; regenerate it from the icns rather than editing it directly:
 
 ```bash
-mkdir -p Resources
-cp tmp/sokki-logo.png Resources/sokki-logo.png     # master source, versioned
-
 ICONSET=$(mktemp -d)/AppIcon.iconset
-mkdir -p "$ICONSET"
-for s in 16 32 128 256 512; do
-  sips -z $s $s Resources/sokki-logo.png --out "$ICONSET/icon_${s}x${s}.png"
-  sips -z $((s*2)) $((s*2)) Resources/sokki-logo.png --out "$ICONSET/icon_${s}x${s}@2x.png"
-done
-iconutil -c icns "$ICONSET" -o Resources/AppIcon.icns
-
-git add Resources/sokki-logo.png Resources/AppIcon.icns
+iconutil -c iconset Resources/AppIcon.icns -o "$ICONSET"
+cp "$ICONSET/icon_512x512@2x.png" Resources/sokki-logo.png
 ```
+
+To replace the icon entirely, author a new `AppIcon.icns` (≥1024×1024 master,
+all standard slots via `iconutil -c icns`) and regenerate the PNG preview as
+above.
 
 ## User one-time setup (outside repo, before first `bun release`)
 
