@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 0.0.12 - 2026-04-24
 - **Match list** search field now supports full keyboard navigation: arrow keys move selection while typing, Return opens the selected match, Esc clears the query (or defocuses to the list when empty), and the selected row auto-scrolls into view.
 
 
