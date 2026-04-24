@@ -153,6 +153,27 @@ struct MatchListView: View {
                 TextField("Search", text: $searchQuery)
                     .textFieldStyle(.roundedBorder)
                     .focused($focus, equals: .search)
+                    .onKeyPress(.upArrow) {
+                        moveSelection(-1)
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        moveSelection(+1)
+                        return .handled
+                    }
+                    .onKeyPress(.return) {
+                        guard let selected = selectedMatch else { return .ignored }
+                        openEditor(for: selected)
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        if !searchQuery.isEmpty {
+                            searchQuery = ""
+                            return .handled
+                        }
+                        focus = filteredMatches.isEmpty ? nil : .list
+                        return .handled
+                    }
             }
         }
         .padding(.horizontal, 8)
@@ -160,48 +181,57 @@ struct MatchListView: View {
     }
 
     private var listBody: some View {
-        List(selection: $selectedMatch) {
-            ForEach(filteredMatches) { match in
-                MatchRow(match: match, conflict: store.conflictsByMatchId[match.id])
-                    .tag(match)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        handleTap(match)
-                    }
-                    .contextMenu {
-                        Button("Edit") {
-                            openEditor(for: match)
+        ScrollViewReader { proxy in
+            List(selection: $selectedMatch) {
+                ForEach(filteredMatches) { match in
+                    MatchRow(match: match, conflict: store.conflictsByMatchId[match.id])
+                        .tag(match)
+                        .id(match.id)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            handleTap(match)
                         }
-                        Button("Delete", role: .destructive) {
-                            pendingDeletion = match
+                        .contextMenu {
+                            Button("Edit") {
+                                openEditor(for: match)
+                            }
+                            Button("Delete", role: .destructive) {
+                                pendingDeletion = match
+                            }
+                            Divider()
+                            Button(match.isEnabled ? "Disable" : "Enable") {
+                                var updated = match
+                                updated.isEnabled.toggle()
+                                store.update(updated)
+                            }
                         }
-                        Divider()
-                        Button(match.isEnabled ? "Disable" : "Enable") {
-                            var updated = match
-                            updated.isEnabled.toggle()
-                            store.update(updated)
-                        }
-                    }
+                }
+                .onDelete { offsets in
+                    let targets = offsets.map { filteredMatches[$0] }
+                    for match in targets { store.remove(match) }
+                }
             }
-            .onDelete { offsets in
-                let targets = offsets.map { filteredMatches[$0] }
-                for match in targets { store.remove(match) }
+            .listStyle(.inset(alternatesRowBackgrounds: true))
+            .focused($focus, equals: .list)
+            .onKeyPress(.return) {
+                guard focus == .list, let selected = selectedMatch else { return .ignored }
+                openEditor(for: selected)
+                return .handled
             }
-        }
-        .listStyle(.inset(alternatesRowBackgrounds: true))
-        .focused($focus, equals: .list)
-        .onKeyPress(.return) {
-            guard focus == .list, let selected = selectedMatch else { return .ignored }
-            openEditor(for: selected)
-            return .handled
-        }
-        .onKeyPress(.delete) {
-            guard focus == .list else { return .ignored }
-            return requestDeleteSelected()
-        }
-        .onKeyPress(.deleteForward) {
-            guard focus == .list else { return .ignored }
-            return requestDeleteSelected()
+            .onKeyPress(.delete) {
+                guard focus == .list else { return .ignored }
+                return requestDeleteSelected()
+            }
+            .onKeyPress(.deleteForward) {
+                guard focus == .list else { return .ignored }
+                return requestDeleteSelected()
+            }
+            .onChange(of: selectedMatch) { _, new in
+                guard let id = new?.id else { return }
+                withAnimation(.easeInOut(duration: 0.12)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
         }
     }
 
@@ -267,6 +297,21 @@ struct MatchListView: View {
     private func pruneSelection() {
         guard let sel = selectedMatch else { return }
         if !filteredMatches.contains(sel) { selectedMatch = nil }
+    }
+
+    private func moveSelection(_ delta: Int) {
+        let items = filteredMatches
+        guard !items.isEmpty else { return }
+        let current = items.firstIndex(where: { $0.id == selectedMatch?.id })
+        let next: Int
+        if let current {
+            next = max(0, min(items.count - 1, current + delta))
+        } else {
+            next = delta > 0 ? 0 : items.count - 1
+        }
+        selectedMatch = items[next]
+        lastClickTime = nil
+        lastClickedId = nil
     }
 
     private func requestDeleteSelected() -> KeyPress.Result {
