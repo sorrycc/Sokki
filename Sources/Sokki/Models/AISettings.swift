@@ -9,7 +9,7 @@ enum PlaceholderStyle: String, Codable, Sendable, Equatable {
 struct AISettings: Codable, Sendable, Equatable {
     var binary: String? = nil
     var args: [String]? = nil
-    var model: String = "haiku"
+    var model: String = "sonnet"
     var timeoutSeconds: Int = 30
     var selectionCaptureTimeoutMs: Int = 400
     var placeholderStyle: PlaceholderStyle = .static
@@ -30,7 +30,7 @@ struct AISettings: Codable, Sendable, Equatable {
         if let args = self.args {
             try AISettings.validateArgs(args)
         }
-        self.model = (try? container.decode(String.self, forKey: .model)) ?? "haiku"
+        self.model = (try? container.decode(String.self, forKey: .model)) ?? "sonnet"
         self.timeoutSeconds = (try? container.decode(Int.self, forKey: .timeoutSeconds)) ?? 30
         self.selectionCaptureTimeoutMs = (try? container.decode(Int.self, forKey: .selectionCaptureTimeoutMs)) ?? 400
         self.placeholderStyle = (try? container.decode(PlaceholderStyle.self, forKey: .placeholderStyle)) ?? .static

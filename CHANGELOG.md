@@ -9,6 +9,7 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **AI settings** now explains upfront that AI features are powered by your locally-installed Claude Code CLI.
 - Default log level is now `debug` instead of `error`, and routine AI / palette / Claude-binary messages no longer surface as errors — the log file stays useful without drowning in false alarms.
 - **Match list** and **Match editor** now flag trigger conflicts inline: a warning icon and tooltip mark duplicates (red) and triggers shadowed by longer ones (orange), and the editor warns live as you type a trigger that collides with or extends another match.
+- **AI settings** gains a "Test connection" button that runs a round-trip `claude` call and shows the resolved binary, model, reply, or a categorised failure reason; the same button cancels an in-flight test, and closing the Settings window aborts it cleanly. Default model for fresh configs is now `sonnet` (existing `model` values are respected).
 
 
 ## 0.0.9 - 2026-04-23

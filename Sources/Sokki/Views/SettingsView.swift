@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import ServiceManagement
 
@@ -125,6 +126,7 @@ struct GeneralSettingsView: View {
 
 struct AISettingsView: View {
     @Bindable var store: MatchStore
+    @State private var controller = AITestController()
 
     var body: some View {
         Form {
@@ -152,11 +154,75 @@ struct AISettingsView: View {
                     Text("Block sweep").tag(PlaceholderStyle.blockSweep)
                 }
             }
+
+            Section("Test") {
+                HStack {
+                    Button(controller.state.isRunning ? "Cancel" : "Test connection") {
+                        if controller.state.isRunning {
+                            controller.cancel()
+                        } else {
+                            controller.start(config: store.config.ai)
+                        }
+                    }
+
+                    if controller.state.isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.leading, 4)
+                    }
+
+                    Spacer()
+                }
+
+                testResultView
+            }
         }
         .formStyle(.grouped)
         .padding()
         .onChange(of: store.config) { _, _ in
             store.saveConfig()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
+            if let window = note.object as? NSWindow, window.title == "Sokki Settings" {
+                controller.cancel()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var testResultView: some View {
+        switch controller.state {
+        case .idle:
+            EmptyView()
+        case .running:
+            Text("Running…")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .ok(let binary, let model, let reply):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Connection OK", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Binary: \(binary)")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                Text("Model: \(model)")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text("Reply: \(reply)")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .fail(let detail):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Test failed", systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -167,5 +233,107 @@ struct AISettingsView: View {
                 store.config.ai.binary = newValue.isEmpty ? nil : newValue
             }
         )
+    }
+}
+
+@MainActor
+@Observable
+final class AITestController {
+    enum State {
+        case idle
+        case running
+        case ok(binary: String, model: String, reply: String)
+        case fail(detail: String)
+
+        var isRunning: Bool {
+            if case .running = self { return true }
+            return false
+        }
+    }
+
+    var state: State = .idle
+    @ObservationIgnored private var task: Task<Void, Never>?
+
+    func start(config: AISettings) {
+        task?.cancel()
+        state = .running
+
+        let binaryOverride = config.binary
+        let model = config.model
+        let timeout = TimeInterval(max(config.timeoutSeconds, 1))
+        let userArgs = config.args
+
+        task = Task { [weak self] in
+            let resolver = ClaudeBinaryResolver()
+            let rewriter = AIRewriter(
+                resolver: resolver,
+                scratchCwd: Self.scratchDirectory()
+            )
+            let resolvedPath = resolver.resolve(explicitPath: binaryOverride)?.path ?? "(not found)"
+
+            let event = await rewriter.run(
+                AIRewriter.Request(
+                    prompt: "ping",
+                    model: model,
+                    timeout: timeout,
+                    userArgs: userArgs
+                ),
+                aiBinaryPath: binaryOverride
+            )
+
+            guard let self else { return }
+            if Task.isCancelled { return }
+
+            switch event {
+            case .completed(let text):
+                let reply = Self.truncate(text.trimmingCharacters(in: .whitespacesAndNewlines), limit: 200)
+                self.state = .ok(binary: resolvedPath, model: model, reply: reply)
+            case .cancelled:
+                return
+            case .failed(let reason):
+                self.state = .fail(detail: Self.detail(for: reason, binary: resolvedPath, timeout: timeout))
+            }
+            self.task = nil
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+        state = .idle
+    }
+
+    private static func scratchDirectory() -> URL {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        let dir = appSupport.appendingPathComponent("Sokki/ai-scratch", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private static func detail(for reason: AIRewriter.Reason, binary: String, timeout: TimeInterval) -> String {
+        let header: String
+        switch reason {
+        case .binaryMissing:
+            return "`claude` binary not found.\nSet a path in 'Claude binary' above, or install the Claude Code CLI."
+        case .authRequired:
+            header = "Not signed in to Claude Code CLI.\nRun `claude` in a terminal and sign in, then retry."
+        case .timeout:
+            header = "Timed out after \(Int(timeout))s.\nIncrease the Timeout field above or check your network."
+        case .nonZeroExit(let code, let tail):
+            let trimmed = tail.trimmingCharacters(in: .whitespacesAndNewlines)
+            let tailText = trimmed.isEmpty ? "(no stderr output)" : truncate(trimmed, limit: 500)
+            header = "CLI exited with code \(code):\n\(tailText)"
+        case .protocolError(let s):
+            header = "Protocol error: \(s)"
+        }
+        return "\(header)\nBinary: \(binary)"
+    }
+
+    private static func truncate(_ s: String, limit: Int) -> String {
+        if s.count <= limit { return s }
+        return String(s.prefix(limit)) + "…"
     }
 }
