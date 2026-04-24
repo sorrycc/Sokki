@@ -96,7 +96,8 @@ final class PaletteController {
             clipboardSnapshot: clipboardSnapshot,
             onCommit: { [weak self] match in self?.commitInjection(match) },
             onEdit: { [weak self] match in self?.commitOpenEditor(match) },
-            onClose: { [weak self] in self?.close() }
+            onClose: { [weak self] in self?.close() },
+            onOpenSettings: { [weak self] in self?.commitOpenSettings() }
         )
         let hosting = NSHostingView(rootView: view)
         hosting.frame = NSRect(origin: .zero, size: frame.size)
@@ -173,6 +174,13 @@ final class PaletteController {
             self?.injector.inject(replacement: resolved, triggerLength: 0)
             self?.recency.bump(trigger)
         }
+    }
+
+    private func commitOpenSettings() {
+        // Don't bounce focus to the prior app — focus is going to the Settings
+        // window, which the .openSettings observer activates.
+        close(reactivateTarget: false)
+        NotificationCenter.default.post(name: .openSettings, object: nil)
     }
 
     private func commitOpenEditor(_ match: Match) {

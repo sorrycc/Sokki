@@ -8,6 +8,7 @@ struct PaletteView: View {
     let onCommit: (Match) -> Void
     let onEdit: (Match) -> Void
     let onClose: () -> Void
+    let onOpenSettings: () -> Void
 
     @State private var query: String = ""
     @State private var selection: UUID?
@@ -49,10 +50,7 @@ struct PaletteView: View {
         )
         .onKeyPress(.escape) { onClose(); return .handled }
         .background {
-            Button("") {
-                onClose()
-                NotificationCenter.default.post(name: .openSettings, object: nil)
-            }
+            Button("") { onOpenSettings() }
             .keyboardShortcut(",", modifiers: .command)
             .opacity(0)
             .frame(width: 0, height: 0)
