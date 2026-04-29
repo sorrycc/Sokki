@@ -191,7 +191,6 @@ final class PaletteController {
         let editor = MatchEditorView(
             match: match,
             availableFiles: matchStore.availableSourceFiles,
-            allMatches: matchStore.matches,
             prefillSourceFile: match.sourceFile ?? "default.yml",
             onSave: { [weak self] updated in
                 self?.matchStore.update(updated)

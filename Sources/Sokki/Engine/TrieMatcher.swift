@@ -111,6 +111,16 @@ struct TrieMatcher: Sendable {
 
         cursors = newCursors
 
+        // Drop pending if a cursor has advanced past it. The user has typed
+        // further than the pending's trigger boundary, committing to a
+        // longer-prefix path; the shorter pending proposal is no longer
+        // their intent. Runs BEFORE the match-found branch so a chained
+        // replacement (e.g. ;f → ;ff) still installs the new pending cleanly.
+        if let pending = pendingMatch,
+           cursors.contains(where: { $0.depth > pending.triggerLength }) {
+            pendingMatch = nil
+        }
+
         // Handle match found
         if let match = longestMatch {
             if hasActiveCursorsWithPotential {

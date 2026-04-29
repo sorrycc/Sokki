@@ -4,14 +4,9 @@ import AppKit
 @Observable
 @MainActor
 final class MatchStore {
-    var matches: [Match] = [] {
-        didSet {
-            conflictsByMatchId = TriggerConflictDetector.computeList(matches: matches)
-        }
-    }
+    var matches: [Match] = []
     var config: AppConfig = AppConfig()
     var lastError: String?
-    private(set) var conflictsByMatchId: [UUID: ConflictReport] = [:]
 
     private var knownFiles: Set<String> = []
     private let configLoader = ConfigLoader()

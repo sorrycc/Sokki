@@ -4,8 +4,11 @@ import os
 
 final class TapContext: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock(initialState: State())
+    private let timerQueue = DispatchQueue(label: "sokki.matcher.timer", qos: .userInitiated)
 
-    struct State {
+    // `DispatchWorkItem` is not Sendable in Swift 6, but State is only ever
+    // mutated inside `lock.withLock`, which provides mutual exclusion.
+    struct State: @unchecked Sendable {
         var buffer = RollingBuffer()
         var matcher = TrieMatcher(matches: [])
         var secureInput = SecureInputMonitor()
@@ -22,6 +25,10 @@ final class TapContext: @unchecked Sendable {
         var paletteChord: PaletteChord?
         var activeAIRequest = false
         var userTypedDuringAI = false
+        var conflictResolveDelayMs: Int = 400
+        var pendingTimer: DispatchWorkItem?
+        var pendingTimerToken: UInt64 = 0
+        var onPendingMatchFired: (@Sendable (Match, Int) -> Void)?
     }
 
     struct PaletteChord: Sendable, Equatable {
@@ -73,11 +80,11 @@ final class TapContext: @unchecked Sendable {
             switch secureTransition {
             case .enteredSecure:
                 state.buffer.clear()
-                state.matcher.reset()
+                resetMatcherAndTimer(&state)
                 return FeedResult(action: .secureInputChanged(isSecure: true))
             case .exitedSecure:
                 state.buffer.clear()
-                state.matcher.reset()
+                resetMatcherAndTimer(&state)
                 return FeedResult(action: .secureInputChanged(isSecure: false))
             case .stillSecure:
                 return FeedResult(action: .none)
@@ -118,7 +125,7 @@ final class TapContext: @unchecked Sendable {
                 switch undoResult {
                 case .undo(let trigger):
                     state.buffer.clear()
-                    state.matcher.reset()
+                    resetMatcherAndTimer(&state)
                     return FeedResult(action: .undo(restoreTrigger: trigger))
                 case .none:
                     rebuildAfterBackspace(&state)
@@ -145,6 +152,7 @@ final class TapContext: @unchecked Sendable {
             // can't resurrect consumed trigger chars into a pending match.
             if let result = state.matcher.feed(character) {
                 state.buffer.clear()
+                reschedulePendingTimer(&state)
                 return FeedResult(action: .matched(
                     match: result.match,
                     triggerLength: result.triggerLength
@@ -152,6 +160,7 @@ final class TapContext: @unchecked Sendable {
             }
 
             // Pure typo / still-typing: intentionally not a HUD event (AC10).
+            reschedulePendingTimer(&state)
             return FeedResult(action: .none)
         }
     }
@@ -210,7 +219,7 @@ final class TapContext: @unchecked Sendable {
                 case "toggle":
                     state.isEnabled.toggle()
                     state.buffer.clear()
-                    state.matcher.reset()
+                    resetMatcherAndTimer(&state)
                     if state.isEnabled {
                         state.hasEmittedDisabledSinceLastEnable = false
                     }
@@ -229,18 +238,30 @@ final class TapContext: @unchecked Sendable {
     func setSuppressMatching(_ suppress: Bool) {
         lock.withLock { state in
             state.suppressMatching = suppress
+            // Guard on `pendingMatch != nil` so suppress toggles inside the AI
+            // animation loop (~120 ms cadence at KeystrokeMonitor.swift:402,410)
+            // remain a cheap no-op when nothing is pending.
+            if suppress, state.matcher.pendingMatch != nil {
+                resetMatcherAndTimer(&state)
+            }
         }
     }
 
     func clearBuffer() {
         lock.withLock { state in
             state.buffer.clear()
-            state.matcher.reset()
+            resetMatcherAndTimer(&state)
         }
     }
 
     func updateMatches(_ matches: [Match]) {
         lock.withLock { state in
+            // Cancel timer + drop any pending Match referencing the old trie.
+            // Deliberately preserve `onPendingMatchFired` (per-monitor lifetime)
+            // and `suppressMatching` (mid-injection self-echo gate).
+            state.pendingTimer?.cancel()
+            state.pendingTimer = nil
+            state.pendingTimerToken &+= 1
             state.matcher = TrieMatcher(matches: matches)
             state.buffer.clear()
         }
@@ -253,6 +274,7 @@ final class TapContext: @unchecked Sendable {
             state.toggleShortcut = config.toggleShortcut
             state.hudShortcut = config.hudShortcut
             state.paletteChord = PaletteChord.parse(config.paletteShortcut)
+            state.conflictResolveDelayMs = config.conflictResolveDelayMs
             if wasDisabled && state.isEnabled {
                 state.hasEmittedDisabledSinceLastEnable = false
             }
@@ -264,7 +286,26 @@ final class TapContext: @unchecked Sendable {
             guard let chord = state.paletteChord else { return false }
             let modifierMask: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
             let activeModifiers = flags.intersection(modifierMask)
-            return keyCode == chord.keyCode && activeModifiers == chord.modifiers
+            let matched = keyCode == chord.keyCode && activeModifiers == chord.modifiers
+            if matched {
+                resetMatcherAndTimer(&state)
+            }
+            return matched
+        }
+    }
+
+    /// Drop pending match + cancel timer. Idempotent no-op when nothing is
+    /// pending. Called from mouse-click / app-switch monitors and from the
+    /// modifier-shortcut early-return path.
+    func cancelPendingMatch() {
+        lock.withLock { state in
+            resetMatcherAndTimer(&state)
+        }
+    }
+
+    func setPendingMatchFiredCallback(_ cb: @escaping @Sendable (Match, Int) -> Void) {
+        lock.withLock { state in
+            state.onPendingMatchFired = cb
         }
     }
 
@@ -336,15 +377,57 @@ final class TapContext: @unchecked Sendable {
     private func invalidateMatchingState(_ state: inout State) {
         state.undoManager.handleNonBackspaceKey()
         state.buffer.clear()
-        state.matcher.reset()
+        resetMatcherAndTimer(&state)
     }
 
     private func rebuildAfterBackspace(_ state: inout State) {
         guard state.buffer.popLast() else { return }
-        state.matcher.reset()
+        resetMatcherAndTimer(&state)
         let remaining = state.buffer.toString()
         for ch in remaining {
             _ = state.matcher.feed(ch)
+        }
+        reschedulePendingTimer(&state)
+    }
+
+    // MARK: - Pending-match timer (conflict-resolve delay)
+
+    private func resetMatcherAndTimer(_ state: inout State) {
+        state.matcher.reset()
+        state.pendingTimer?.cancel()
+        state.pendingTimer = nil
+        state.pendingTimerToken &+= 1
+    }
+
+    private func reschedulePendingTimer(_ state: inout State) {
+        state.pendingTimer?.cancel()
+        state.pendingTimerToken &+= 1
+        guard state.matcher.pendingMatch != nil else {
+            state.pendingTimer = nil
+            return
+        }
+        let token = state.pendingTimerToken
+        let delayMs = max(50, min(5000, state.conflictResolveDelayMs))
+        let work = DispatchWorkItem { [weak self] in
+            self?.firePendingTimer(token: token)
+        }
+        state.pendingTimer = work
+        timerQueue.asyncAfter(deadline: .now() + .milliseconds(delayMs), execute: work)
+    }
+
+    private func firePendingTimer(token: UInt64) {
+        let result: (Match, Int, @Sendable (Match, Int) -> Void)? = lock.withLock { state in
+            guard token == state.pendingTimerToken,
+                  let pending = state.matcher.flushPending(),
+                  let cb = state.onPendingMatchFired
+            else { return nil }
+            state.pendingTimer = nil
+            state.buffer.clear()
+            return (pending.match, pending.triggerLength, cb)
+        }
+        if let (match, length, cb) = result {
+            Logger.shared.debug("Pending match timeout fired: trigger=\(match.trigger) len=\(length)")
+            cb(match, length)
         }
     }
 }

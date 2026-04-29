@@ -11,6 +11,7 @@ struct AppConfig: Codable, Sendable, Equatable {
     var toggleShortcut: String = "none"
     var hudShortcut: String = "none"
     var paletteShortcut: String = "none"
+    var conflictResolveDelayMs: Int = 400
 
     var ai: AISettings = .init()
 
@@ -25,6 +26,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         case toggleShortcut = "toggle_shortcut"
         case hudShortcut = "hud_shortcut"
         case paletteShortcut = "palette_shortcut"
+        case conflictResolveDelayMs = "conflict_resolve_delay_ms"
         case ai
     }
 
@@ -60,6 +62,8 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.toggleShortcut = (try? container.decode(String.self, forKey: .toggleShortcut)) ?? "none"
         self.hudShortcut = (try? container.decode(String.self, forKey: .hudShortcut)) ?? "none"
         self.paletteShortcut = (try? container.decode(String.self, forKey: .paletteShortcut)) ?? "none"
+        self.conflictResolveDelayMs =
+            (try? container.decode(Int.self, forKey: .conflictResolveDelayMs)) ?? 400
         // `ai` decoding propagates `ConfigLoadIssue.invalidAIArg` (e.g. from
         // AISettings.validateArgs) rather than silently defaulting — we want
         // bad args to surface, not vanish.

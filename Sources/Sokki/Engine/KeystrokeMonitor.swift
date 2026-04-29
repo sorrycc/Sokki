@@ -8,6 +8,8 @@ final class KeystrokeMonitor {
 
     private var tapThread: Thread?
     private var isRunning = false
+    private var pendingCancelMouseMonitor: Any?
+    private var appSwitchObserver: NSObjectProtocol?
 
     let variableRenderer = VariableRenderer()
     let textInjector = TextInjector()
@@ -107,12 +109,56 @@ final class KeystrokeMonitor {
         self.tapThread = tapThread
         tapThread.start()
 
+        // Pending-match timer: fire callback (mirrors keystroke matched branch
+        // ordering at TapHandler.handleEvent :750,757,758). `onMatch`,
+        // `onHUDEv`, and `context` are already-@Sendable locals from this scope.
+        let timeoutFire: @Sendable (Match, Int) -> Void = { [context, onMatch, onHUDEv] match, triggerLength in
+            onHUDEv(HUDEvent(
+                id: UUID(),
+                timestamp: Date(),
+                verdict: .matched,
+                capturedBuffer: match.trigger,
+                matchedTrigger: match.trigger
+            ))
+            context.setSuppressMatching(true)
+            onMatch(match, triggerLength)
+        }
+        context.setPendingMatchFiredCallback(timeoutFire)
+
+        // Mouse-click cancellation: any click anywhere drops a pending match.
+        // Distinct from `aiMouseMonitor` (scoped to AI-request lifetime).
+        pendingCancelMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [context] _ in
+            context.cancelPendingMatch()
+        }
+
+        // App-switch cancellation: Cmd+Tab away with no mouse click.
+        // `queue: nil` posts on the posting thread; `cancelPendingMatch` is
+        // thread-safe via the TapContext lock.
+        appSwitchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didDeactivateApplicationNotification,
+            object: nil,
+            queue: nil
+        ) { [context] _ in
+            context.cancelPendingMatch()
+        }
+
         Logger.shared.debug("KeystrokeMonitor started")
     }
 
     func stop() {
         isRunning = false
         tapState.disable()
+        if let m = pendingCancelMouseMonitor {
+            NSEvent.removeMonitor(m)
+            pendingCancelMouseMonitor = nil
+        }
+        if let obs = appSwitchObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(obs)
+            appSwitchObserver = nil
+        }
+        tapContext.cancelPendingMatch()
         tapThread = nil
         Logger.shared.debug("KeystrokeMonitor stopped")
     }
@@ -708,9 +754,11 @@ private final class TapHandler: @unchecked Sendable {
             return Unmanaged.passRetained(event)
         }
 
-        // Skip keys with Cmd/Ctrl held (except backspace)
+        // Skip keys with Cmd/Ctrl held (except backspace). User taking a
+        // shortcut action — drop any pending match.
         let backspaceKeyCode: UInt16 = 0x33
         if keyCode != backspaceKeyCode && (flags.contains(.maskCommand) || flags.contains(.maskControl)) {
+            context.cancelPendingMatch()
             return Unmanaged.passRetained(event)
         }
 
