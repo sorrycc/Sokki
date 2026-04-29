@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 0.0.14 - 2026-04-29
 - Fix: pressing ⌘, in the **command palette** now brings the Settings window to the front instead of leaving it hidden behind the previously focused app.
 - **Release pipeline** now structurally verifies every packaged build (framework presence, rpath resolution, SwiftPM resource bundles, codesign) and launch-smokes the stapled app before distribution, auto-copying any missing SwiftPM resource bundles so new dependencies cannot silently ship a broken binary.
 - **Trigger conflicts** between a shorter trigger and one that extends it are now resolved automatically: the shorter trigger fires after a brief idle pause (default 400 ms, configurable via `conflict_resolve_delay_ms`), and pending matches are cancelled on mouse clicks, app switches, or palette activation, removing the previous in-app conflict warnings in favour of correct expansion.
