@@ -204,6 +204,7 @@ final class KeystrokeMonitor {
             (1 << CGEventType.flagsChanged.rawValue)
 
         let handler = TapHandler(
+            state: state,
             context: context,
             onMatch: onMatch,
             onUndo: onUndo,
@@ -273,6 +274,7 @@ private final class TapState: @unchecked Sendable {
 // MARK: - TapHandler (event processing, lives on tap thread)
 
 private final class TapHandler: @unchecked Sendable {
+    let state: TapState
     let context: TapContext
     let onMatch: @Sendable (Match, Int) -> Void
     let onUndo: @Sendable (String) -> Void
@@ -284,6 +286,7 @@ private final class TapHandler: @unchecked Sendable {
     let onAICancelRequested: @Sendable () -> Void
 
     init(
+        state: TapState,
         context: TapContext,
         onMatch: @escaping @Sendable (Match, Int) -> Void,
         onUndo: @escaping @Sendable (String) -> Void,
@@ -294,6 +297,7 @@ private final class TapHandler: @unchecked Sendable {
         onPaletteToggleRequested: @escaping @Sendable () -> Void,
         onAICancelRequested: @escaping @Sendable () -> Void
     ) {
+        self.state = state
         self.context = context
         self.onMatch = onMatch
         self.onUndo = onUndo
@@ -306,8 +310,12 @@ private final class TapHandler: @unchecked Sendable {
     }
 
     func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Re-enable tap if disabled
+        // The system disables a tap that takes too long to service (or on user
+        // input during certain states). Without re-enabling, Sokki silently
+        // stops capturing keystrokes until relaunch — so re-arm it here.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            Logger.shared.warning("Event tap disabled (\(type == .tapDisabledByTimeout ? "timeout" : "userInput")) — re-enabling")
+            state.reenable()
             return Unmanaged.passRetained(event)
         }
 
