@@ -102,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             renderer: keystrokeMonitor.variableRenderer,
             injector: keystrokeMonitor.textInjector,
             activation: activationCoordinator,
-            aiExecutor: keystrokeMonitor
+            aiController: keystrokeMonitor.aiController
         )
 
         // Start monitoring

@@ -12,7 +12,7 @@ final class PaletteController {
     private let renderer: VariableRenderer
     private let injector: TextInjector
     private let activation: ActivationPolicyCoordinator
-    private let aiExecutor: KeystrokeMonitor
+    private let aiController: AIExpansionController
 
     private lazy var panel: NSPanel = makePanel()
 
@@ -35,14 +35,14 @@ final class PaletteController {
         renderer: VariableRenderer,
         injector: TextInjector,
         activation: ActivationPolicyCoordinator,
-        aiExecutor: KeystrokeMonitor
+        aiController: AIExpansionController
     ) {
         self.matchStore = matchStore
         self.recency = recency
         self.renderer = renderer
         self.injector = injector
         self.activation = activation
-        self.aiExecutor = aiExecutor
+        self.aiController = aiController
 
         // Force-init the lazy panel and observe key transitions on it directly
         // (avoids capturing `note` across actor boundaries).
@@ -150,15 +150,15 @@ final class PaletteController {
     // MARK: - Commit
 
     private func commitInjection(_ match: Match) {
-        // AI matches go through the keystroke monitor's AI flow. The monitor
-        // owns focus-poll + selection capture + placeholder + run + cleanup.
+        // AI matches go through the AI controller. It owns focus-poll +
+        // selection capture + placeholder + run + cleanup.
         if match.isAI {
             let target = targetApp
             let trigger = match.trigger
             close(reactivateTarget: true)
             Task { @MainActor [weak self] in
                 guard let self, let target else { return }
-                await self.aiExecutor.handleAIMatchFromPalette(match: match, target: target)
+                await self.aiController.handleFromPalette(match: match, target: target)
                 self.recency.bump(trigger)
             }
             return
