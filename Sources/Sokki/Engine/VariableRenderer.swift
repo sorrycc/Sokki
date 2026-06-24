@@ -7,73 +7,43 @@ final class VariableRenderer {
         pattern: #"\{\{(\w+)(?::([^}]*))?\}\}"#
     )
 
+    static let cursorGlyph = "▎"
+
+    /// Live render for actual injection: `{{clipboard}}` reads the pasteboard,
+    /// `{{date}}` uses now, unknown variables are left verbatim.
     func render(_ template: String) -> String {
-        let nsTemplate = template as NSString
-        let range = NSRange(location: 0, length: nsTemplate.length)
-        let matches = Self.variablePattern.matches(in: template, range: range)
-
-        guard !matches.isEmpty else { return template }
-
-        var result = template
-        // Process matches in reverse order to preserve indices
-        for match in matches.reversed() {
-            let fullRange = Range(match.range, in: result)!
-            let nameRange = Range(match.range(at: 1), in: result)!
-            let name = String(result[nameRange])
-
-            var params: String?
-            if match.range(at: 2).location != NSNotFound,
-               let paramsRange = Range(match.range(at: 2), in: result) {
-                params = String(result[paramsRange])
-            }
-
-            let value = resolveVariable(name: name, params: params)
-            result.replaceSubrange(fullRange, with: value)
-        }
-
-        return result
-    }
-
-    /// Render with a stable clipboard snapshot and a visible cursor glyph.
-    /// Used by the palette preview pane so `{{clipboard}}` doesn't change as
-    /// the user navigates results, and `{{cursor}}` is visible in the preview.
-    func renderPreview(_ template: String, clipboardSnapshot: String?) -> AttributedString {
-        let range = NSRange(location: 0, length: (template as NSString).length)
-        let matches = Self.variablePattern.matches(in: template, range: range)
-
-        var plain = template
-        for match in matches.reversed() {
-            let fullRange = Range(match.range, in: plain)!
-            let nameRange = Range(match.range(at: 1), in: plain)!
-            let name = String(plain[nameRange])
-
-            var params: String?
-            if match.range(at: 2).location != NSNotFound,
-               let paramsRange = Range(match.range(at: 2), in: plain) {
-                params = String(plain[paramsRange])
-            }
-
-            let value: String
+        substitute(template) { name, params in
             switch name {
             case "clipboard":
-                value = clipboardSnapshot ?? ""
-            case "cursor":
-                value = Self.cursorGlyph
+                return NSPasteboard.general.string(forType: .string) ?? ""
             case "date":
-                let format = params ?? "yyyy-MM-dd"
-                let formatter = DateFormatter()
-                formatter.dateFormat = format
-                value = formatter.string(from: Date())
+                return Self.formatDate(params)
             default:
-                value = params.map { "{{\(name):\($0)}}" } ?? "{{\(name)}}"
+                return Self.verbatim(name: name, params: params)
             }
+        }
+    }
 
-            plain.replaceSubrange(fullRange, with: value)
+    /// Render for the palette preview pane: `{{clipboard}}` uses a stable
+    /// snapshot (so it doesn't change as the user navigates results) and
+    /// `{{cursor}}` renders as a visible, tinted glyph.
+    func renderPreview(_ template: String, clipboardSnapshot: String?) -> AttributedString {
+        let plain = substitute(template) { name, params in
+            switch name {
+            case "clipboard":
+                return clipboardSnapshot ?? ""
+            case "cursor":
+                return Self.cursorGlyph
+            case "date":
+                return Self.formatDate(params)
+            default:
+                return Self.verbatim(name: name, params: params)
+            }
         }
 
-        // Tint every cursor glyph in the result. Safe because the glyph is the
-        // only place we ever insert this Unicode block, and user content is
-        // very unlikely to contain it.
+        // Tint every cursor glyph. Safe because the glyph is the only place we
+        // ever insert this Unicode block, and user content is very unlikely to
+        // contain it.
         var result = AttributedString(plain)
         var cursor = result.startIndex
         while cursor < result.endIndex,
@@ -84,23 +54,38 @@ final class VariableRenderer {
         return result
     }
 
-    static let cursorGlyph = "▎"
+    /// Walk every `{{name[:params]}}` occurrence in reverse (to keep indices
+    /// stable) and replace it with `resolve(name, params)`.
+    private func substitute(_ template: String, resolve: (String, String?) -> String) -> String {
+        let range = NSRange(location: 0, length: (template as NSString).length)
+        let matches = Self.variablePattern.matches(in: template, range: range)
+        guard !matches.isEmpty else { return template }
 
-    private func resolveVariable(name: String, params: String?) -> String {
-        switch name {
-        case "clipboard":
-            return NSPasteboard.general.string(forType: .string) ?? ""
-        case "date":
-            let format = params ?? "yyyy-MM-dd"
-            let formatter = DateFormatter()
-            formatter.dateFormat = format
-            return formatter.string(from: Date())
-        default:
-            // Unknown variable — leave as-is
-            if let params {
-                return "{{\(name):\(params)}}"
+        var result = template
+        for match in matches.reversed() {
+            let fullRange = Range(match.range, in: result)!
+            let name = String(result[Range(match.range(at: 1), in: result)!])
+
+            var params: String?
+            if match.range(at: 2).location != NSNotFound,
+               let paramsRange = Range(match.range(at: 2), in: result) {
+                params = String(result[paramsRange])
             }
-            return "{{\(name)}}"
+
+            result.replaceSubrange(fullRange, with: resolve(name, params))
         }
+        return result
+    }
+
+    private static func formatDate(_ params: String?) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = params ?? "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
+    /// Unknown variable — leave the original token untouched.
+    private static func verbatim(name: String, params: String?) -> String {
+        if let params { return "{{\(name):\(params)}}" }
+        return "{{\(name)}}"
     }
 }
