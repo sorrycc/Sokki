@@ -4,7 +4,7 @@ import Foundation
 
 @MainActor
 final class KeystrokeMonitor {
-    let tapContext: TapContext
+    private let tapContext: TapContext
     let variableRenderer = VariableRenderer()
     let textInjector: TextInjector
     let aiController: AIExpansionController

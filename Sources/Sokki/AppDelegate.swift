@@ -165,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.matchStore.config.isEnabled.toggle()
             let enabled = self.matchStore.config.isEnabled
-            self.keystrokeMonitor.tapContext.updateConfig(self.matchStore.config)
+            self.keystrokeMonitor.updateConfig(self.matchStore.config)
             self.statusItemController.updateIcon(enabled: enabled)
         }
 
@@ -212,7 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Notifications
 
     @objc private func appDidActivate(_ notification: Notification) {
-        keystrokeMonitor.tapContext.clearBuffer()
+        keystrokeMonitor.clearBuffer()
     }
 
     @objc private func matchesDidChange() {
