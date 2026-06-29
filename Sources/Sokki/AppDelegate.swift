@@ -309,11 +309,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard let stream = FSEventStreamCreate(
             nil,
-            { _, info, _, _, _, _ in
+            { _, info, _, eventPaths, _, _ in
                 guard let info else { return }
                 let delegate = Unmanaged<AppDelegate>.fromOpaque(info).takeUnretainedValue()
+                // `kFSEventStreamCreateFlagUseCFTypes` makes `eventPaths` a CFArray of CFString.
+                let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
                 DispatchQueue.main.async {
-                    delegate.debouncedReload()
+                    delegate.handleFSEvents(paths)
                 }
             },
             &context,
@@ -339,6 +341,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
         fsEventStream = nil
+    }
+
+    private func handleFSEvents(_ paths: [String]) {
+        // Ignore batches that only touch our own log directory. The log file lives
+        // inside the watched config dir, so each TRACE write would otherwise
+        // retrigger a reload, which writes more TRACE lines — a loop throttled only
+        // by the debounce. A mixed batch still reloads; unreadable paths fall
+        // through to a reload (fail-safe).
+        let logsPrefix = configDir.appendingPathComponent("logs").path + "/"
+        let onlyLogs = !paths.isEmpty && paths.allSatisfy { $0.hasPrefix(logsPrefix) }
+        if onlyLogs { return }
+        debouncedReload()
     }
 
     private func debouncedReload() {

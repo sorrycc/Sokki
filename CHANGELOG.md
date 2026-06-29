@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- Fix: the config-file watcher no longer reacts to Sokki's own log writes. Because the log lives inside the watched config directory, every always-on trace line was retriggering a config reload — which wrote more trace lines — a self-sustaining loop that spammed the log and needlessly reloaded config several times a second. The watcher now ignores filesystem events that only touch the `logs/` directory.
 
 
 ## 0.0.15 - 2026-06-29
