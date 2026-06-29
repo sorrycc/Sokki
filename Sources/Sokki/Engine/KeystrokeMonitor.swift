@@ -136,7 +136,7 @@ final class KeystrokeMonitor {
         pendingCancelMouseMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [context] _ in
-            context.cancelPendingMatch()
+            context.cancelPendingMatch(reason: "mouse-click")
         }
 
         // App-switch cancellation: Cmd+Tab away with no mouse click.
@@ -147,7 +147,7 @@ final class KeystrokeMonitor {
             object: nil,
             queue: nil
         ) { [context] _ in
-            context.cancelPendingMatch()
+            context.cancelPendingMatch(reason: "app-switch")
         }
 
         Logger.shared.debug("KeystrokeMonitor started")
@@ -164,7 +164,7 @@ final class KeystrokeMonitor {
             NSWorkspace.shared.notificationCenter.removeObserver(obs)
             appSwitchObserver = nil
         }
-        tapContext.cancelPendingMatch()
+        tapContext.cancelPendingMatch(reason: "monitor-stopped")
         tapThread = nil
         Logger.shared.debug("KeystrokeMonitor stopped")
     }
@@ -370,7 +370,7 @@ private final class TapHandler: @unchecked Sendable {
         // shortcut action — drop any pending match.
         let backspaceKeyCode: UInt16 = 0x33
         if keyCode != backspaceKeyCode && (flags.contains(.maskCommand) || flags.contains(.maskControl)) {
-            context.cancelPendingMatch()
+            context.cancelPendingMatch(reason: "modifier-shortcut")
             return Unmanaged.passRetained(event)
         }
 
@@ -396,8 +396,9 @@ private final class TapHandler: @unchecked Sendable {
             return Unmanaged.passRetained(event)
         }
 
-        Logger.shared.debug("Key: \(character) (code: \(keyCode))")
-
+        // The per-keystroke trace lives inside `context.feed`, AFTER its
+        // secure-input check — logging the character here would leak
+        // password-field keystrokes into the log file.
         let result = context.feed(character: character, keyCode: keyCode, modifierFlags: flags)
 
         switch result.action {

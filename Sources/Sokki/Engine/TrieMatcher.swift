@@ -146,6 +146,14 @@ struct TrieMatcher: Sendable {
         return nil
     }
 
+    /// Compact dump of post-feed matcher state for trace logging: the active
+    /// cursor depths (how far each in-flight prefix has advanced) and the
+    /// trigger of any match being held pending the conflict-resolve delay.
+    var debugSummary: String {
+        let depths = cursors.map(\.depth).sorted()
+        return "cursors=\(depths) pending=\(pendingMatch?.match.trigger ?? "-")"
+    }
+
     mutating func reset() {
         cursors = []
         pendingMatch = nil

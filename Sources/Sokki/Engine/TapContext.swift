@@ -79,10 +79,13 @@ final class TapContext: @unchecked Sendable {
             let secureTransition = state.secureInput.check()
             switch secureTransition {
             case .enteredSecure:
+                // No character logged — this is a secure (password) field.
+                Logger.shared.trace("secure: entered — buffer cleared")
                 state.buffer.clear()
                 resetMatcherAndTimer(&state)
                 return FeedResult(action: .secureInputChanged(isSecure: true))
             case .exitedSecure:
+                Logger.shared.trace("secure: exited — buffer cleared")
                 state.buffer.clear()
                 resetMatcherAndTimer(&state)
                 return FeedResult(action: .secureInputChanged(isSecure: false))
@@ -97,6 +100,7 @@ final class TapContext: @unchecked Sendable {
                 if !state.hasEmittedTooSoonForCurrentPaste {
                     state.hasEmittedTooSoonForCurrentPaste = true
                     let snapshot = state.buffer.toString() + String(character)
+                    Logger.shared.trace("blocked: paste-too-soon buf=\"\(snapshot)\"")
                     return FeedResult(action: .blockedTooSoon(bufferSnapshot: snapshot))
                 }
                 return FeedResult(action: .none)
@@ -108,6 +112,7 @@ final class TapContext: @unchecked Sendable {
                 if !state.hasEmittedDisabledSinceLastEnable {
                     state.hasEmittedDisabledSinceLastEnable = true
                     let snapshot = state.buffer.toString() + String(character)
+                    Logger.shared.trace("blocked: disabled buf=\"\(snapshot)\"")
                     return FeedResult(action: .blockedDisabled(bufferSnapshot: snapshot))
                 }
                 return FeedResult(action: .none)
@@ -118,7 +123,7 @@ final class TapContext: @unchecked Sendable {
             if keyCode == backspaceKeyCode {
                 if modifierFlags.contains(.maskAlternate) || modifierFlags.contains(.maskCommand) {
                     invalidateMatchingState(&state)
-                    Logger.shared.debug("Word/line delete clear: flags=\(modifierFlags.rawValue)")
+                    Logger.shared.trace("clear: word/line-delete flags=\(modifierFlags.rawValue)")
                     return FeedResult(action: .none)
                 }
                 let undoResult = state.undoManager.handleBackspace()
@@ -129,7 +134,7 @@ final class TapContext: @unchecked Sendable {
                     return FeedResult(action: .undo(restoreTrigger: trigger))
                 case .none:
                     rebuildAfterBackspace(&state)
-                    Logger.shared.debug("Rewind: popped, remaining=\(state.buffer.currentCount)")
+                    Logger.shared.trace("rewind: popped, remaining=\(state.buffer.currentCount) \(state.matcher.debugSummary)")
                     return FeedResult(action: .none)
                 }
             }
@@ -138,7 +143,7 @@ final class TapContext: @unchecked Sendable {
             // tracked position, so subsequent typing is no longer contiguous).
             if isCaretControlKey(keyCode) {
                 invalidateMatchingState(&state)
-                Logger.shared.debug("Caret-move clear: keyCode=\(keyCode)")
+                Logger.shared.trace("clear: caret-move keyCode=\(keyCode)")
                 return FeedResult(action: .none)
             }
 
@@ -148,9 +153,19 @@ final class TapContext: @unchecked Sendable {
             // Append to buffer.
             state.buffer.append(character)
 
+            // Per-keystroke decision trace. Capture the tail BEFORE any clear,
+            // and the matcher summary AFTER feed, so a held-pending shows up as
+            // `-> none` with a non-`-` pending (the ;don vs ;done case). Logging
+            // the character is safe here: secure/suppress/paste/disabled all
+            // returned above, so this line never carries a password keystroke.
+            let tail = state.buffer.tail(min(16, state.buffer.currentCount))
+
             // Feed to trie matcher. Clear buffer on fire so a later rewind
             // can't resurrect consumed trigger chars into a pending match.
-            if let result = state.matcher.feed(character) {
+            let mResult = state.matcher.feed(character)
+            let summary = state.matcher.debugSummary
+            if let result = mResult {
+                Logger.shared.trace("feed '\(character)' buf=\"\(tail)\" \(summary) -> matched \(result.match.trigger) len=\(result.triggerLength)")
                 state.buffer.clear()
                 reschedulePendingTimer(&state)
                 return FeedResult(action: .matched(
@@ -160,6 +175,7 @@ final class TapContext: @unchecked Sendable {
             }
 
             // Pure typo / still-typing: intentionally not a HUD event (AC10).
+            Logger.shared.trace("feed '\(character)' buf=\"\(tail)\" \(summary) -> none")
             reschedulePendingTimer(&state)
             return FeedResult(action: .none)
         }
@@ -218,6 +234,7 @@ final class TapContext: @unchecked Sendable {
                     return FeedResult(action: .hudRequested)
                 case "toggle":
                     state.isEnabled.toggle()
+                    notePendingDrop(&state, reason: "toggle-shortcut")
                     state.buffer.clear()
                     resetMatcherAndTimer(&state)
                     if state.isEnabled {
@@ -242,6 +259,7 @@ final class TapContext: @unchecked Sendable {
             // animation loop (~120 ms cadence at KeystrokeMonitor.swift:402,410)
             // remain a cheap no-op when nothing is pending.
             if suppress, state.matcher.pendingMatch != nil {
+                notePendingDrop(&state, reason: "suppress")
                 resetMatcherAndTimer(&state)
             }
         }
@@ -249,6 +267,7 @@ final class TapContext: @unchecked Sendable {
 
     func clearBuffer() {
         lock.withLock { state in
+            notePendingDrop(&state, reason: "focus-change")
             state.buffer.clear()
             resetMatcherAndTimer(&state)
         }
@@ -259,11 +278,15 @@ final class TapContext: @unchecked Sendable {
             // Cancel timer + drop any pending Match referencing the old trie.
             // Deliberately preserve `onPendingMatchFired` (per-monitor lifetime)
             // and `suppressMatching` (mid-injection self-echo gate).
+            notePendingDrop(&state, reason: "matches-reload")
             state.pendingTimer?.cancel()
             state.pendingTimer = nil
             state.pendingTimerToken &+= 1
             state.matcher = TrieMatcher(matches: matches)
             state.buffer.clear()
+            let enabled = matches.filter(\.isEnabled)
+            let triggers = enabled.map(\.trigger).joined(separator: ", ")
+            Logger.shared.trace("updateMatches: \(enabled.count) enabled; triggers=[\(triggers)]")
         }
     }
 
@@ -288,6 +311,7 @@ final class TapContext: @unchecked Sendable {
             let activeModifiers = flags.intersection(modifierMask)
             let matched = keyCode == chord.keyCode && activeModifiers == chord.modifiers
             if matched {
+                notePendingDrop(&state, reason: "palette-chord")
                 resetMatcherAndTimer(&state)
             }
             return matched
@@ -296,9 +320,11 @@ final class TapContext: @unchecked Sendable {
 
     /// Drop pending match + cancel timer. Idempotent no-op when nothing is
     /// pending. Called from mouse-click / app-switch monitors and from the
-    /// modifier-shortcut early-return path.
-    func cancelPendingMatch() {
+    /// modifier-shortcut early-return path. `reason` is recorded in the trace
+    /// log only when a pending match was actually dropped.
+    func cancelPendingMatch(reason: String = "unspecified") {
         lock.withLock { state in
+            notePendingDrop(&state, reason: reason)
             resetMatcherAndTimer(&state)
         }
     }
@@ -374,6 +400,17 @@ final class TapContext: @unchecked Sendable {
         }
     }
 
+    /// Trace a pending-match drop, but only when one actually existed — keeps
+    /// frequent callers (mouse-click, app-switch) from spamming the log. Pure
+    /// read of `pendingMatch`; takes no lock, so it MUST be called from inside
+    /// `lock.withLock`, and before `resetMatcherAndTimer` clears the pending.
+    /// `inout` mirrors the sibling helpers and avoids copying `State`.
+    private func notePendingDrop(_ state: inout State, reason: String) {
+        if let pending = state.matcher.pendingMatch {
+            Logger.shared.trace("pending dropped (\(reason)): \(pending.match.trigger)")
+        }
+    }
+
     private func invalidateMatchingState(_ state: inout State) {
         state.undoManager.handleNonBackspaceKey()
         state.buffer.clear()
@@ -426,7 +463,7 @@ final class TapContext: @unchecked Sendable {
             return (pending.match, pending.triggerLength, cb)
         }
         if let (match, length, cb) = result {
-            Logger.shared.debug("Pending match timeout fired: trigger=\(match.trigger) len=\(length)")
+            Logger.shared.trace("pending fired (timeout): \(match.trigger) len=\(length)")
             cb(match, length)
         }
     }

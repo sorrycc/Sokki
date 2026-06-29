@@ -46,13 +46,24 @@ final class Logger: Sendable {
         log(level: .debug, message: message)
     }
 
+    /// Always-on diagnostic trace for the expansion engine's decision path.
+    /// Deliberately bypasses `Self.level` (like `error`/`warning`) so a
+    /// non-expansion can be reconstructed from the log even at `log_level=error`.
+    func trace(_ message: String) {
+        write("TRACE", message)
+    }
+
     private func log(level: Level, message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
         let label = switch level {
         case .error: "ERROR"
         case .warning: "WARN"
         case .debug: "DEBUG"
         }
+        write(label, message)
+    }
+
+    private func write(_ label: String, _ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] [\(label)] \(message)\n"
 
         lock.lock()
