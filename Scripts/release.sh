@@ -15,10 +15,17 @@ preflight() {
         echo "FAIL: Developer ID cert for team ${TEAM_ID} not in keychain." >&2
         exit 1
     fi
-    if ! xcrun notarytool history --keychain-profile "${NOTARY_PROFILE}" >/dev/null 2>&1; then
-        echo "FAIL: '${NOTARY_PROFILE}' keychain profile missing." >&2
-        echo "      Register once with: xcrun notarytool store-credentials ${NOTARY_PROFILE} \\" >&2
-        echo "        --apple-id <your-apple-id> --team-id ${TEAM_ID} --password <app-specific-password>" >&2
+    if ! nt_out=$(xcrun notarytool history --keychain-profile "${NOTARY_PROFILE}" 2>&1); then
+        if echo "${nt_out}" | grep -qiE "keychain|profile|could not find|no.*item"; then
+            echo "FAIL: '${NOTARY_PROFILE}' keychain profile missing." >&2
+            echo "      Register once with: xcrun notarytool store-credentials ${NOTARY_PROFILE} \\" >&2
+            echo "        --apple-id <your-apple-id> --team-id ${TEAM_ID} --password <app-specific-password>" >&2
+        else
+            echo "FAIL: notarytool rejected '${NOTARY_PROFILE}' (profile exists, but the request failed):" >&2
+            echo "${nt_out}" | sed 's/^/      /' >&2
+            echo "      A 403 'agreement' error means an Apple Developer agreement needs accepting" >&2
+            echo "      at https://developer.apple.com/account/ (and App Store Connect agreements)." >&2
+        fi
         exit 1
     fi
     echo "  ok: Developer ID cert found"
