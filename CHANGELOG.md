@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 0.0.15 - 2026-06-29
 - Fix: if macOS disabled Sokki's event tap (e.g. after a slow event or certain user input), the app silently stopped capturing keystrokes until relaunch. The tap now automatically re-arms itself when this happens.
 - **Expansion diagnostics**: an always-on trace log (independent of the configured log level) records the keystroke-by-keystroke decision path — buffer tail, matcher state, why a pending match was dropped, and the loaded trigger snapshot — so non-expansions can be diagnosed from the log alone. This also closes a privacy leak where password-field keystrokes could reach the log: per-key tracing now runs only after the secure-input gate, and secure transitions log without the character.
 
