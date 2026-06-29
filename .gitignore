@@ -7,3 +7,5 @@
 /tmp
 /.env
 /Scripts/telemetry.config
+.claude/worktrees/
+
