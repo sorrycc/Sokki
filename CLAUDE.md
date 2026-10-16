@@ -1,50 +1,46 @@
 # Sokki
 
-macOS 14+ menu bar text expander written in Swift 6 (strict concurrency, `@MainActor`-heavy). arm64 only.
+macOS 14+ menu bar text expander written in Go. Native UI drawn by MyGo (`github.com/egoist/mygo`, package `ui`),
+no cgo: macOS APIs MyGo lacks are called through purego. arm64 only.
 
 ## Layout
 
-- `Sources/Sokki/` — `@main` app (`SokkiApp.swift`), `AppDelegate.swift`, status item + HUD panel controllers
-  - `Engine/` — keystroke capture and expansion: `KeystrokeMonitor`, `TapContext`, `TrieMatcher`, `RollingBuffer`, `TextInjector`, `VariableRenderer`, `ExpansionUndoManager`, `SecureInputMonitor`
-  - `Models/` — plain data: `Match`, `MatchStore`, `Variable`, `AppConfig`, `HUDEvent`, `HUDStore`
-  - `Services/` — lifecycle + infra: `Bootstrapper`, `ConfigLoader`, `ClipboardManager`, `Logger`, `PaletteController`, `RecencyStore`, `UpdaterService`
-  - `Views/` — SwiftUI: `SettingsView`, `MatchListView`, `MatchEditorView`, `PaletteView`, `HUDView`
-- `Scripts/` — `package_app.sh`, `release.ts`, `upload_r2.ts`, `sparkle.config`
-- `docs/designs/` — dated design specs (`YYYY-MM-DD-<slug>.md`); `docs/ideas/` is exploration-only, not authoritative
-- `Resources/` — bundled assets
-- `Package.swift`, `package.json` (Bun scripts), `VERSION`, `CHANGELOG.md`
+- `cmd/sokki/` — the app (package main): `main.go` startup + wiring, `tray.go` menu bar item, `settings.go` +
+  `matches.go` Settings, `editor.go` match editor, `palette.go` palette panel, `hud.go` Recent Activity panel,
+  `app_test.go` headless UI tests
+- `internal/macos/` — purego bindings: event tap, synthesized keys, Accessibility, secure input, workspace, pasteboard
+- `internal/engine/` — trigger trie, buffer, undo, the tap's state machine (`Context`), variables/dates, fuzzy score
+- `internal/expander/` — the running engine: tap handler, injector, AI flow
+- `internal/model/`, `internal/config/`, `internal/ai/`, `internal/prefs/`, `internal/telemetry/`, `internal/logx/`
+- `docs/designs/` — dated design specs (`YYYY-MM-DD-<slug>.md`); start with `2026-10-16-mygo-rewrite.md`
+- `resources/` — bundled into the app (`icon.png`; CI writes the gitignored `telemetry.json`)
+- `mygo.json` (name, identifier `com.sokki.Sokki`, version, updates), `CHANGELOG.md`, `scripts/`
 
 ## Build & run
 
 ```bash
-swift build                  # debug
-swift build -c release
-swift run                    # or: bun dev
-./Scripts/package_app.sh     # bundle + sign Sokki.app
+go build ./...
+go test ./...            # -short skips pasteboard tests
+go vet ./... && go tool mygo vet
+scripts/dev.sh           # bare binary rebuilt on change (not mygo dev: macOS 26 hides its menu bar icon), config in ~/.config/sokki-dev
+go tool mygo build       # build/darwin-arm64/Sokki.app + .dmg, ad hoc signed
 ```
-
-No test target yet — don't invent `swift test` invocations.
-
-## Release
-
-`bun release patch|minor|major [--push] [--upload]` drives the pipeline: build → notarize → staple → zip/dmg → (optionally) push tag → (optionally) upload to R2 + update `appcast.xml`. Takes 3–5 min; notarization is the bottleneck. One-time notary + Sparkle/R2/keychain setup lives in `README.md` — don't re-run it.
-
-`.env` holds R2 credentials and is gitignored. Never commit it or print its contents.
 
 ## Conventions
 
-- Swift 6 language mode — respect `Sendable`, actor isolation, and `MainActor.assumeIsolated` patterns already in the code
-- Prefer editing existing files over adding new ones; keep new types inside the existing four-folder module split
-- Design docs are large (20–50 KB). Before reading one in full, check `docs/designs/` filenames and skim for the relevant date/slug
-- Commit style: `type: short summary` (see `git log`: `fix:`, `docs:`, `release:`)
+- State of `cmd/sokki` lives on MyGo's main thread; other goroutines hand work over with `app.post`. Views are
+  functions of state (`ui.View`); don't keep `ui.Element`s past their frame.
+- Windows hide instead of closing via `app.hideOnClose`, which lets `App.Quit` through.
+- Never log typed characters before the secure-input check in `engine.Context.Feed`.
+- Keep the `~/.config/sokki` file format compatible.
+- Add a line for every user-facing change under `## Unreleased` in `CHANGELOG.md`.
+- Commit style: `type: short summary` (`fix:`, `feat:`, `docs:`, `chore:`).
+
+## Release
+
+`scripts/bump.sh patch|minor|major|<version>` commits + tags; the pushed tag runs `.github/workflows/release.yml`,
+which signs, notarizes and publishes to the public `sorrycc/Sokki`. See `CONTRIBUTING.md` for the secrets.
 
 ## Search scope
 
-Heavy artifact dirs that are gitignored but still on disk — exclude from Glob/Grep unless explicitly needed:
-
-- `.build/` (~800 MB SwiftPM build cache)
-- `build/` (release artifacts: zip/dmg/sha256)
-- `Sokki.app/` (packaged bundle)
-- `tmp/` (~50 MB of PNG mockups)
-
-Default to searching `Sources/`, `Scripts/`, `docs/`, and top-level config files.
+Gitignored dirs to skip: `build/`, `.mygo/`, `.build/`, `Sokki.app/`, `tmp/`.

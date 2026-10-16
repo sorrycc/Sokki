@@ -12,8 +12,8 @@ description: Wrap up a finished dev task — add one CHANGELOG bullet under Unre
 > Finish a dev task in this project. Report back in under 80 words.
 >
 > 1. Inspect: `git status`, `git diff`, `git diff --staged`, `git log @{u}..HEAD` (if upstream set). If working tree is clean and nothing is ahead, stop and report "nothing to do".
-> 2. If the diff touches `VERSION`, STOP — tell the user to run `bun release` instead.
-> 3. Abort if the diff touches `.env` or contains obvious secret patterns (R2 keys, notary password).
+> 2. If the diff changes `version` in `mygo.json`, STOP — tell the user to run `scripts/bump.sh` instead.
+> 3. Abort if the diff touches `.env` or `resources/telemetry.json`, or contains obvious secret patterns (update signing key, notary password, tokens).
 > 4. Update `CHANGELOG.md`:
 >    - Write **one** bullet covering the whole batch (all uncommitted changes + any unpushed commits) under `## Unreleased`. Create the section above the latest released version if missing.
 >    - Style: user-facing, terse, present tense, full sentences; bold the affected UI area (e.g. **Match editor**); prefix bugfixes with `Fix:`.
