@@ -26,7 +26,7 @@ scripts/bump.sh patch    # or minor, major, or a version such as 0.2.0
 ```
 
 It sets the version in `mygo.json`, renames `## Unreleased` to `## <version>` in `CHANGELOG.md`, commits and tags
-`v<version>`, and after asking pushes `master` and the tag. The [Release workflow](.github/workflows/release.yml)
+`v<version>`, and after asking pushes `main` and the tag. The [Release workflow](.github/workflows/release.yml)
 then builds Sokki (arm64), signs it with the Developer ID, has it notarized, uploads the disk image and the signed
 update to the release of the tag on [sorrycc/Sokki](https://github.com/sorrycc/Sokki), and publishes it. Installed
 apps check for it once a day, and from **Check for Updates…** in the menu bar; the update window shows the
