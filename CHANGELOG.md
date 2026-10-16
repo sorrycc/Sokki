@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
-## Unreleased
+## 0.1.0
 
 - **Sokki is rewritten in Go**, its windows drawn by MyGo's native UI. Every feature stays, and so do your matches and settings in `~/.config/sokki`.
 - **Updates** now come from GitHub releases, with smaller delta updates and a new update window. Sokki 0.0.16 does not update to this version by itself: download it once from the releases page and replace the app in Applications; the Accessibility permission should carry over.
