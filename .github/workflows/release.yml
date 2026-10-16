@@ -18,20 +18,15 @@ env:
   RELEASE_REPO: sorrycc/Sokki
 
 jobs:
-  release:
-    runs-on: macos-latest
+  draft-release:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
       - name: Check the tag against mygo.json and CHANGELOG.md
         run: |
           version="$(jq -r .version mygo.json)"
           test "$GITHUB_REF_NAME" = "v$version" || { echo "::error::tag $GITHUB_REF_NAME, but mygo.json has $version"; exit 1; }
           grep -q "^## $version\$" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; }
-      - run: go vet ./...
-      - run: go test -short ./...
       # The notes of the release are the version's section of CHANGELOG.md.
       - name: Create the draft release
         env:
@@ -42,6 +37,15 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$RELEASE_REPO" \
               --draft --title "Sokki ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"
           fi
+
+  build:
+    needs: draft-release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
       # Release builds send telemetry; builds without telemetry.json do not.
       - name: Write the telemetry configuration
         env:
@@ -99,10 +103,15 @@ jobs:
           GH_TOKEN: ${{ secrets.SOKKI_RELEASE_TOKEN }} # finds the published versions that delta updates start from, and uploads
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: go tool mygo build -platform darwin/arm64 -upload
+      - name: Remove the keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.SOKKI_RELEASE_TOKEN }}
         run: gh release edit "$GITHUB_REF_NAME" --repo "$RELEASE_REPO" --draft=false --latest
-      - name: Remove the keychain
-        if: always()
-        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true

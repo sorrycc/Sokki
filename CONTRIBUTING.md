@@ -32,7 +32,7 @@ update to the release of the tag on [sorrycc/Sokki](https://github.com/sorrycc/S
 apps check for it once a day, and from **Check for Updates…** in the menu bar; the update window shows the
 changelog section.
 
-For 0.1.0, which `mygo.json` already has, run `scripts/bump.sh 0.1.0`.
+The first release of the Go rewrite is `scripts/bump.sh minor`, 0.0.16 to 0.1.0.
 
 The workflow needs these secrets in sorrycc/Sokki-source:
 

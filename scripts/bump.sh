@@ -37,7 +37,7 @@ new = {
     "minor": (major, minor + 1, 0),
     "major": (major + 1, 0, 0),
 }.get(arg) or parse(arg)
-if new < current or (new == current and arg in ("patch", "minor", "major")):
+if new <= current:
     sys.exit("%d.%d.%d doesn't come after the current version %s." % (*new, sys.argv[1]))
 print("%d.%d.%d" % new)
 PY
@@ -82,10 +82,7 @@ else
 fi
 
 echo "==> $CURRENT -> $VERSION"
-FILES=
-EXPECT_JSON=0
-if [ "$VERSION" != "$CURRENT" ]; then
-    /usr/bin/python3 - "$VERSION" <<'PY'
+/usr/bin/python3 - "$VERSION" <<'PY'
 import json, sys
 with open("mygo.json") as f:
     config = json.load(f)
@@ -94,9 +91,7 @@ with open("mygo.json", "w") as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
     f.write("\n")
 PY
-    FILES=mygo.json
-    EXPECT_JSON=2
-fi
+FILES=mygo.json
 if [ -n "$RENAME_UNRELEASED" ]; then
     /usr/bin/python3 - "$VERSION" <<'PY'
 import re, sys
@@ -106,14 +101,10 @@ text = re.sub(r"^## Unreleased$", "## " + sys.argv[1], text, count=1, flags=re.M
 with open("CHANGELOG.md", "w") as f:
     f.write(text)
 PY
-    FILES="CHANGELOG.md${FILES:+ $FILES}"
-fi
-if [ -z "$FILES" ]; then
-    echo "Nothing to change: mygo.json has $VERSION and CHANGELOG.md its section. Tag it with: git tag $TAG" >&2
-    exit 1
+    FILES="CHANGELOG.md mygo.json"
 fi
 if [ "$(git diff --name-only | tr '\n' ' ')" != "$FILES " ] \
-    || [ "$(git diff -U0 mygo.json | grep -c '^[-+] ')" != "$EXPECT_JSON" ] \
+    || [ "$(git diff -U0 mygo.json | grep -c '^[-+] ')" != 2 ] \
     || { [ -n "$RENAME_UNRELEASED" ] && [ "$(git diff -U0 CHANGELOG.md | grep -c '^[-+]#')" != 2 ]; }; then
     echo "Expected only the version in $FILES to change:" >&2
     git diff >&2
