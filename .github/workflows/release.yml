@@ -1,7 +1,7 @@
 # Builds Sokki for macOS (arm64) when a v* tag is pushed (scripts/bump.sh
 # pushes one), signs and notarizes it, uploads the app and its signed update
-# to the release of the tag on the public sorrycc/Sokki, and publishes it,
-# which installed apps update to.
+# to the release of the tag on sorrycc/Sokki, and publishes it, which
+# installed apps update to.
 name: Release
 
 on:
@@ -9,13 +9,13 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write # creates, uploads to and publishes the release
 
 concurrency: release
 
 env:
-  # Releases live in the public repository, which installed apps read.
-  RELEASE_REPO: sorrycc/Sokki
+  # Releases live in this repository, which installed apps read.
+  RELEASE_REPO: ${{ github.repository }}
 
 jobs:
   draft-release:
@@ -30,7 +30,7 @@ jobs:
       # The notes of the release are the version's section of CHANGELOG.md.
       - name: Create the draft release
         env:
-          GH_TOKEN: ${{ secrets.SOKKI_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view "$GITHUB_REF_NAME" --repo "$RELEASE_REPO" > /dev/null 2>&1; then
             scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
@@ -100,7 +100,7 @@ jobs:
       # there.
       - name: Build and upload
         env:
-          GH_TOKEN: ${{ secrets.SOKKI_RELEASE_TOKEN }} # finds the published versions that delta updates start from, and uploads
+          GH_TOKEN: ${{ github.token }} # finds the published versions that delta updates start from, and uploads
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: go tool mygo build -platform darwin/arm64 -upload
       - name: Remove the keychain
@@ -113,5 +113,5 @@ jobs:
     steps:
       - name: Publish the release
         env:
-          GH_TOKEN: ${{ secrets.SOKKI_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: gh release edit "$GITHUB_REF_NAME" --repo "$RELEASE_REPO" --draft=false --latest

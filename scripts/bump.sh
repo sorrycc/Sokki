@@ -126,4 +126,4 @@ if [[ "$answer" != [yY]* ]]; then
     exit 0
 fi
 git push --quiet --atomic origin main "$TAG"
-echo "==> pushed $TAG. The Release workflow: https://github.com/sorrycc/Sokki-source/actions/workflows/release.yml"
+echo "==> pushed $TAG. The Release workflow: https://github.com/sorrycc/Sokki/actions/workflows/release.yml"

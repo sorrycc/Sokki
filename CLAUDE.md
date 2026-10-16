@@ -39,7 +39,7 @@ go tool mygo build       # build/darwin-arm64/Sokki.app + .dmg, ad hoc signed
 ## Release
 
 `scripts/bump.sh patch|minor|major|<version>` commits + tags; the pushed tag runs `.github/workflows/release.yml`,
-which signs, notarizes and publishes to the public `sorrycc/Sokki`. See `CONTRIBUTING.md` for the secrets.
+which signs, notarizes and publishes to `sorrycc/Sokki`, the same repo. See `CONTRIBUTING.md` for the secrets.
 
 ## Search scope
 

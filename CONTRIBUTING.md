@@ -34,11 +34,10 @@ changelog section.
 
 The first release of the Go rewrite is `scripts/bump.sh minor`, 0.0.16 to 0.1.0.
 
-The workflow needs these secrets in sorrycc/Sokki-source:
+The workflow writes the release with its own `GITHUB_TOKEN` and needs these secrets in sorrycc/Sokki:
 
 | Secret | What |
 |---|---|
-| `SOKKI_RELEASE_TOKEN` | a token that can write releases of sorrycc/Sokki (fine-grained: Contents read and write) |
 | `MYGO_UPDATER_PRIVATE_KEY` | `mygo-update.key` of `go tool mygo keygen`, whose public key is in `mygo.json` |
 | `MACOS_CERTIFICATE` | the Developer ID Application certificate and its key, as a base64 `.p12` |
 | `MACOS_CERTIFICATE_PASSWORD` | the password of the `.p12` |
