@@ -1,14 +1,13 @@
 //go:build darwin
 
 // Package expander runs the expansion: the event tap feeding the engine,
-// the injection of replacements, and the AI flow.
+// and the injection of replacements.
 package expander
 
 import (
 	"sync"
 	"time"
 
-	"sokki/internal/ai"
 	"sokki/internal/engine"
 	"sokki/internal/logx"
 	"sokki/internal/macos"
@@ -29,7 +28,6 @@ type Handlers struct {
 type Expander struct {
 	Ctx      *engine.Context
 	Injector *Injector
-	Rewriter *ai.Rewriter
 	h        Handlers
 
 	mu  sync.Mutex
@@ -39,20 +37,15 @@ type Expander struct {
 	// work runs the steps that follow keys, in their order, one at a
 	// time, as the Swift app's main queue did.
 	work chan func()
-
-	aiMu           sync.Mutex
-	placeholderLen int
-	animStop       chan struct{}
 }
 
 // New makes an expander, not started.
 func New(h Handlers) *Expander {
 	e := &Expander{
-		Ctx:      engine.NewContext(macos.IsSecureInput),
-		Rewriter: &ai.Rewriter{Resolver: &ai.Resolver{}, ScratchDir: ai.ScratchDir()},
-		h:        h,
-		cfg:      model.DefaultConfig(),
-		work:     make(chan func(), 256),
+		Ctx:  engine.NewContext(macos.IsSecureInput),
+		h:    h,
+		cfg:  model.DefaultConfig(),
+		work: make(chan func(), 256),
 	}
 	e.Injector = &Injector{cfg: e.Config}
 	go func() {
@@ -106,10 +99,8 @@ func (e *Expander) Start() error {
 	tap, err := macos.StartTap(macos.TapOptions{
 		OnKey: e.handleKey,
 		OnMouseDown: func() {
-			// A click may have moved the caret: no pending match, and an
-			// AI request falls back as if the user typed.
+			// A click may have moved the caret: no pending match.
 			e.Ctx.CancelPending("mouse-click")
-			e.Ctx.NoteTypedDuringAI()
 		},
 		OnRearm: func(timeout bool) {
 			reason := "userInput"
@@ -165,16 +156,6 @@ func (e *Expander) handleKey(ev macos.KeyEvent) bool {
 			e.Async(func() { call(e.h.HUDRequested) })
 		}
 		return true
-	}
-
-	// Escape cancels an AI request, and goes no further; any other key
-	// during one is the user typing.
-	if e.Ctx.AIActive() {
-		if ev.KeyCode == macos.KeyEscape {
-			e.Async(e.Rewriter.Cancel)
-			return false
-		}
-		e.Ctx.NoteTypedDuringAI()
 	}
 
 	// The palette's chord is swallowed, so that ⌥Space, say, does not
@@ -239,10 +220,6 @@ func (e *Expander) handleKey(ev macos.KeyEvent) bool {
 // engine is suppressed when it is called.
 func (e *Expander) onMatch(m model.Match, triggerLength int) {
 	e.Async(func() {
-		if m.IsAI() {
-			go e.runAI(m, invocation{typed: true, length: triggerLength})
-			return
-		}
 		rendered := engine.Render(m.Replace, clipboardText, time.Now())
 		e.Injector.Inject(rendered, triggerLength)
 		e.Ctx.RecordExpansion(m.Trigger, rendered)
@@ -257,17 +234,7 @@ func clipboardText() string {
 
 // InjectFromPalette types a match chosen in the palette, once the app
 // that was in front has the keyboard again.
-func (e *Expander) InjectFromPalette(m model.Match, targetPID int) {
-	if m.IsAI() {
-		go func() {
-			deadline := time.Now().Add(80 * time.Millisecond)
-			for time.Now().Before(deadline) && targetPID != 0 && macos.FrontmostPID() != targetPID {
-				time.Sleep(10 * time.Millisecond)
-			}
-			e.runAI(m, invocation{})
-		}()
-		return
-	}
+func (e *Expander) InjectFromPalette(m model.Match) {
 	rendered := engine.Render(m.Replace, clipboardText, time.Now())
 	time.AfterFunc(30*time.Millisecond, func() {
 		e.Async(func() { e.Injector.Inject(rendered, 0) })

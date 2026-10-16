@@ -1,6 +1,5 @@
 // Sokki is a menu bar text expander for macOS: type a trigger anywhere
-// and it is replaced with its text, or with the reply of an AI prompt run
-// through the Claude Code CLI. Its windows are MyGo's native UI.
+// and it is replaced with its text. Its windows are MyGo's native UI.
 package main
 
 import (

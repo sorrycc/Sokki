@@ -29,7 +29,6 @@ type palette struct {
 	results   []model.Match
 	chosen    int
 	clipboard string // a snapshot, for the preview
-	targetPID int    // the app in front when it opened
 }
 
 func newPalette(a *app) *palette { return &palette{a: a} }
@@ -75,7 +74,6 @@ func (p *palette) toggle() {
 func (p *palette) show() {
 	p.ensure()
 	p.a.exp.Ctx.CancelPending("palette-open")
-	p.targetPID = macos.FrontmostPID()
 	p.clipboard, _ = macos.PasteboardString()
 	// On the display with the pointer, its top a quarter of the way down.
 	d := mygo.Screen.DisplayNearestPoint(mygo.Screen.CursorScreenPoint())
@@ -85,7 +83,7 @@ func (p *palette) show() {
 	p.filter()
 	p.input.Focus()
 	p.win.Show()
-	logx.Debugf("[Palette] show target=%d results=%d", p.targetPID, len(p.results))
+	logx.Debugf("[Palette] show results=%d", len(p.results))
 }
 
 func (p *palette) hide() {
@@ -172,7 +170,7 @@ func (p *palette) selected() (model.Match, bool) {
 // commit types the match into the app the user was in.
 func (p *palette) commit(m model.Match) {
 	p.hide()
-	p.a.exp.InjectFromPalette(m, p.targetPID)
+	p.a.exp.InjectFromPalette(m)
 	p.a.recency.Bump(m.Trigger)
 }
 
@@ -245,22 +243,12 @@ func (p *palette) row(c *ui.Context, i int) {
 			} else {
 				ui.Text(c, m.Trigger).Font("monospace").FontSize(11).TextColor(mutedColor).SingleLine().Shrink(1)
 			}
-			if m.IsAI() {
-				aiBadge(c)
-			}
 		})
-		ui.Text(c, previewLine(m)).FontSize(11).TextColor(mutedColor).SingleLine()
+		ui.Text(c, firstLine(m.Replace)).FontSize(11).TextColor(mutedColor).SingleLine()
 	})
 	if row.Clicked() {
 		p.commit(m)
 	}
-}
-
-func previewLine(m model.Match) string {
-	if m.Prompt != nil {
-		return firstLine(model.Glyphs(*m.Prompt))
-	}
-	return firstLine(m.Replace)
 }
 
 func (p *palette) preview(c *ui.Context) {
@@ -275,14 +263,6 @@ func (p *palette) preview(c *ui.Context) {
 	}
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(14).Gap(12).Children(func() {
-			if m.Prompt != nil {
-				ui.Column(c).Gap(3).Children(func() {
-					ui.Text(c, "PROMPT").FontSize(11).Bold().TextColor(c.Theme().TextMuted)
-					ui.Text(c, *m.Prompt).Font("monospace").Wrap().Selectable()
-				})
-				caption(c, "Runs Claude ("+p.a.store.Config.AI.Model+") via the local `claude` CLI. `{{selection}}` / `{{clipboard}}` placeholders are filled at run time. Result replaces the placeholder “⟨generating…⟩”.").Wrap()
-				return
-			}
 			ui.Text(c, engine.RenderPreview(m.Replace, p.clipboard, time.Now())).Font("monospace").Wrap().Selectable()
 		})
 	})

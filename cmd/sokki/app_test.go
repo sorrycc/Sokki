@@ -128,11 +128,6 @@ func TestSettingsTabs(t *testing.T) {
 	}
 	shot(t, tt, "general")
 	tt.Key(ui.Cmd, ui.Key3)
-	if !tt.HasText("Claude binary") || !tt.HasText("Test connection") {
-		t.Fatalf("AI tab: %q", tt.Texts())
-	}
-	shot(t, tt, "ai")
-	tt.Key(ui.Cmd, ui.Key4)
 	if !tt.HasText("Telemetry is only active in packaged release builds.") {
 		t.Fatalf("Privacy tab: %q", tt.Texts())
 	}
@@ -186,23 +181,6 @@ func TestEditorSavesNewMatch(t *testing.T) {
 	}
 }
 
-func TestEditorRejectsBadPrompt(t *testing.T) {
-	a := testApp(t)
-	e := a.editor
-	e.existing, e.trigger, e.file, e.enabled, e.isAI, e.prompt = 0, ":ai", config.DefaultMatchFile, true, true, "Fix {{nope}}"
-	tt := ui.NewTester(e.view, 500, 480)
-	tt.Click("Save")
-	if e.promptErr == "" || !tt.HasText(e.promptErr) {
-		t.Fatalf("no error shown: %q", tt.Texts())
-	}
-	shot(t, tt, "editor-ai")
-	for _, m := range a.store.Matches {
-		if m.Trigger == ":ai" {
-			t.Fatal("saved a bad prompt")
-		}
-	}
-}
-
 func TestNewFileNames(t *testing.T) {
 	files := []string{"default.yml", "Work.yaml"}
 	cases := map[string]string{"notes": "notes.yml", "x.YAML": "x.YAML", ".hidden": "", "a/b": "", "  ": ""}
@@ -246,20 +224,6 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	}
 }
 
-func TestPaletteShowsAIPrompt(t *testing.T) {
-	a := testApp(t)
-	prompt := "Fix the grammar: {{s|c}}"
-	a.store.Add(model.Match{Trigger: ":fix", Prompt: &prompt, Label: "Fix grammar", Enabled: true})
-	p := a.palette
-	p.query = "fix"
-	p.filter()
-	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
-	if !tt.HasText("Fix grammar") || !tt.HasText("PROMPT") || !tt.HasText("AI") {
-		t.Fatalf("palette: %q", tt.Texts())
-	}
-	shot(t, tt, "palette-ai")
-}
-
 func TestHUD(t *testing.T) {
 	a := testApp(t)
 	h := a.hud
@@ -270,7 +234,7 @@ func TestHUD(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.Local)
 	h.record(model.HUDEvent{ID: 1, Time: now, Verdict: model.VerdictTooSoon, Buffer: "secret word"})
 	h.record(model.HUDEvent{ID: 2, Time: now, Verdict: model.VerdictMatched, Buffer: ":hi", MatchedTrigger: ":hi"})
-	h.record(model.HUDEvent{ID: 3, Time: now, Verdict: model.VerdictAIFailed, Buffer: ":fix", MatchedTrigger: ":fix", Note: "timeout"})
+	h.record(model.HUDEvent{ID: 3, Time: now, Verdict: model.VerdictMatched, Buffer: ":fix", MatchedTrigger: ":fix", Note: "timeout"})
 	tt.Frame()
 	if !tt.HasText("•••••• ••••") || tt.HasText("secret word") || !tt.HasText("Too soon") || !tt.HasText("timeout") {
 		t.Fatalf("hud: %q", tt.Texts())

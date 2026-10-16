@@ -106,8 +106,6 @@ type Context struct {
 	tooSoonShown  bool
 	disabledShown bool
 	chord         *PaletteChord
-	aiActive      bool
-	typedDuringAI bool
 	conflictDelay int
 	timer         *time.Timer
 	timerToken    uint64
@@ -382,49 +380,6 @@ func (c *Context) Enabled() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.enabled
-}
-
-// SetAIActive marks an AI request in flight, or done.
-func (c *Context) SetAIActive(active bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.aiActive = active
-	if !active {
-		c.typedDuringAI = false
-	}
-}
-
-// AIActive reports whether an AI request is in flight.
-func (c *Context) AIActive() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.aiActive
-}
-
-// NoteTypedDuringAI notes the user typing or clicking while an AI request
-// runs, unless it is Sokki's own injection.
-func (c *Context) NoteTypedDuringAI() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.aiActive && !c.suppress {
-		c.typedDuringAI = true
-	}
-}
-
-// PeekTypedDuringAI reads the flag without clearing it.
-func (c *Context) PeekTypedDuringAI() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.typedDuringAI
-}
-
-// ConsumeTypedDuringAI reads the flag and ends the AI request, at once.
-func (c *Context) ConsumeTypedDuringAI() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	typed := c.typedDuringAI
-	c.aiActive, c.typedDuringAI = false, false
-	return typed
 }
 
 // The helpers below run with the lock held.

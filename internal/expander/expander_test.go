@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf16"
-
-	"sokki/internal/model"
 )
 
 func TestChunkKeepsCharactersWhole(t *testing.T) {
@@ -23,14 +21,5 @@ func TestChunkKeepsCharactersWhole(t *testing.T) {
 	}
 	if len(chunk("", 200)) != 0 || len(chunk("abc", 200)) != 1 {
 		t.Fatal("small inputs")
-	}
-}
-
-func TestPlaceholderFrames(t *testing.T) {
-	if placeholderFrame(model.PlaceholderStatic, 3) != placeholderWord {
-		t.Fatal("static")
-	}
-	if placeholderFrame(model.PlaceholderBraille, 10) != brailleFrames[0] || placeholderFrame(model.PlaceholderBlockSweep, 9) != blockFrames[1] {
-		t.Fatal("frames wrap")
 	}
 }

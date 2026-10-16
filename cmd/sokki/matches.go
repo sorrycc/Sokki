@@ -180,15 +180,6 @@ func (l *matchList) emptyText() string {
 	return "Add a match with the + button below."
 }
 
-// subtitle is the second line of a match's row: its replacement, or its
-// prompt with the placeholders as ⟨…⟩.
-func subtitle(m model.Match) string {
-	if m.Prompt != nil {
-		return firstLine(model.Glyphs(*m.Prompt))
-	}
-	return firstLine(m.Replace)
-}
-
 func firstLine(s string) string {
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
 		return s[:i]
@@ -214,13 +205,10 @@ func (l *matchList) row(c *ui.Context, i int) {
 	row := ui.Row(c).Padding(6, 10).Gap(8).AlignItems(ui.Center).Radius(6).Background(bg).Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
 			ui.Text(c, m.Trigger).Font("monospace").TextColor(text).SingleLine()
-			ui.Text(c, subtitle(m)).FontSize(11).TextColor(mutedColor).SingleLine()
+			ui.Text(c, firstLine(m.Replace)).FontSize(11).TextColor(mutedColor).SingleLine()
 		})
 		if m.SourceFile != "" {
 			ui.Text(c, m.SourceFile).FontSize(11).TextColor(mutedColor).SingleLine().MaxWidth(140)
-		}
-		if m.IsAI() {
-			aiBadge(c)
 		}
 		if !m.Enabled {
 			ui.Badge(c, "Disabled")
@@ -243,10 +231,4 @@ func (l *matchList) row(c *ui.Context, i int) {
 			l.a.store.Update(m)
 		}
 	})
-}
-
-// aiBadge marks an AI match, in blue, as the Swift app did.
-func aiBadge(c *ui.Context) {
-	ui.Text(c, "AI").FontSize(10).Bold().TextColor(ui.RGB(255, 255, 255)).
-		Padding(1, 6).Radius(8).Background(ui.RGB(59, 130, 246).Alpha(0.85))
 }

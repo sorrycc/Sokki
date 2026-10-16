@@ -20,8 +20,6 @@ type editorWindow struct {
 	existing int64 // the match edited, 0 for a new one
 	trigger  string
 	replace  string
-	prompt   string
-	isAI     bool
 	label    string
 	enabled  bool
 	file     string
@@ -31,14 +29,11 @@ type editorWindow struct {
 	newFile    string
 	newFileIn  ui.Handle
 	triggerIn  ui.Handle
-	promptErr  string
 }
 
 func (e *editorWindow) edit(m model.Match) {
 	e.existing = m.ID
 	e.trigger, e.replace, e.label, e.enabled = m.Trigger, m.Replace, m.Label, m.Enabled
-	e.isAI = m.IsAI()
-	e.prompt = deref(m.Prompt)
 	e.file = m.SourceFile
 	if e.file == "" {
 		e.file = config.DefaultMatchFile
@@ -52,13 +47,13 @@ func (e *editorWindow) create(file, trigger string) {
 	if trigger != "" {
 		e.trigger = trigger
 	}
-	e.replace, e.prompt, e.label, e.isAI, e.enabled = "", "", "", false, true
+	e.replace, e.label, e.enabled = "", "", true
 	e.file = file
 	e.open("New Match")
 }
 
 func (e *editorWindow) open(title string) {
-	e.addingFile, e.newFile, e.promptErr, e.extra = false, "", "", nil
+	e.addingFile, e.newFile, e.extra = false, "", nil
 	if e.win == nil {
 		e.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:     title,
@@ -104,13 +99,7 @@ func (e *editorWindow) files() []string {
 }
 
 func (e *editorWindow) canSave() bool {
-	if e.trigger == "" {
-		return false
-	}
-	if e.isAI {
-		return e.prompt != ""
-	}
-	return e.replace != ""
+	return e.trigger != "" && e.replace != ""
 }
 
 func (e *editorWindow) save() {
@@ -118,17 +107,8 @@ func (e *editorWindow) save() {
 		return
 	}
 	m := model.Match{
-		ID: e.existing, Trigger: e.trigger, Label: strings.TrimSpace(e.label), Enabled: e.enabled, SourceFile: e.file,
-	}
-	if e.isAI {
-		if _, err := model.ParsePrompt(e.prompt); err != nil {
-			e.promptErr = err.Error()
-			return
-		}
-		p := e.prompt
-		m.Prompt = &p
-	} else {
-		m.Replace = e.replace
+		ID: e.existing, Trigger: e.trigger, Replace: e.replace, Label: strings.TrimSpace(e.label), Enabled: e.enabled,
+		SourceFile: e.file,
 	}
 	if e.existing != 0 {
 		if _, ok := e.a.store.Match(e.existing); ok {
@@ -231,25 +211,9 @@ func (e *editorWindow) view(c *ui.Context) {
 						})
 					})
 				}).Description("The YAML file where this match is stored.")
-				ui.Field(c, "AI prompt", func() {
-					if switchRow(c, &e.isAI, "Route this match through the Claude CLI instead of plain text replacement.") {
-						e.promptErr = ""
-					}
-				})
-				if e.isAI {
-					f := ui.Field(c, "Prompt", func() {
-						if ui.TextArea(c, &e.prompt).Font("monospace").MinHeight(110).Grow(1).Changed() {
-							e.promptErr = ""
-						}
-					}).Description("Use `{{selection}}`, `{{clipboard}}`, alias `s`/`c`, or fallback `{{s|c}}`.")
-					if e.promptErr != "" {
-						f.Error(e.promptErr)
-					}
-				} else {
-					ui.Field(c, "Replacement", func() {
-						ui.TextArea(c, &e.replace).Font("monospace").MinHeight(90).Grow(1)
-					}).Description("The text to insert. Use {{clipboard}} and {{date:format}} for variables.")
-				}
+				ui.Field(c, "Replacement", func() {
+					ui.TextArea(c, &e.replace).Font("monospace").MinHeight(90).Grow(1)
+				}).Description("The text to insert. Use {{clipboard}} and {{date:format}} for variables.")
 				ui.Field(c, "Enabled", func() { ui.Switch(c, &e.enabled) })
 			})
 		})

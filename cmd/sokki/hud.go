@@ -143,12 +143,6 @@ func verdictChip(c *ui.Context, v model.Verdict) {
 		label, tint = "Too soon", t.Warning
 	case model.VerdictDisabled:
 		label, tint = "Disabled", t.TextMuted
-	case model.VerdictAIThinking:
-		label, tint = "AI…", ui.RGB(59, 130, 246)
-	case model.VerdictAICompleted:
-		label, tint = "AI done", t.Success
-	case model.VerdictAIFailed:
-		label, tint = "AI failed", t.Danger
 	}
 	ui.Text(c, label).FontSize(11).Bold().Padding(2, 6).Radius(8).Background(tint.Alpha(0.25)).SingleLine()
 }

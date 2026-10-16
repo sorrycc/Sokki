@@ -13,11 +13,9 @@ drawn by <a href="https://github.com/egoist/mygo">MyGo</a>'s native UI.</p>
   `{{date:yyyy-MM-dd}}` variables
 - **Undo:** backspace the whole expansion within 3 seconds and the trigger comes back
 - **Overlapping triggers:** `;d` and `;done` both work: the shorter fires after a short pause
-- **AI matches:** a `prompt:` with `{{selection}}` / `{{clipboard}}` runs through your Claude Code CLI and
-  types the reply in place, with an animated placeholder and Esc to cancel
 - **Palette:** a Spotlight-style finder of every match (⌥Space or another chord), ⌘↵ to edit
 - **Recent Activity:** a HUD showing what was matched or blocked, to find out why a trigger didn't fire
-- **Settings:** matches by file, with search, the editor, and the general, AI and privacy settings
+- **Settings:** matches by file, with search, the editor, and the general and privacy settings
 - **Safe by default:** nothing is read in password fields (secure input), nothing typed is logged there
 - **Auto-updates** with signed delta updates
 
@@ -26,7 +24,7 @@ drawn by <a href="https://github.com/egoist/mygo">MyGo</a>'s native UI.</p>
 Everything lives in `~/.config/sokki`, which the first launch creates:
 
 ```
-config/default.yml   settings (enable, clipboard_threshold, inject_delay, palette_shortcut, ai: …)
+config/default.yml   settings (enable, clipboard_threshold, inject_delay, palette_shortcut, …)
 match/*.yml          matches, in any number of files
 logs/sokki.log       the log
 ```
@@ -37,9 +35,6 @@ matches:
     replace: |
       Best regards,
       Your Name
-  - trigger: ":fix"
-    label: Fix grammar
-    prompt: "Fix the grammar, keep the tone: {{s|c}}"
 ```
 
 Files are reloaded as they change.
@@ -48,7 +43,6 @@ Files are reloaded as they change.
 
 - macOS 14 or later, Apple silicon
 - The Accessibility permission, which Sokki asks for at first launch
-- For AI matches, the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code)
 
 ## Development
 

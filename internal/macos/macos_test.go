@@ -26,9 +26,6 @@ func TestPasteboardRoundTrip(t *testing.T) {
 func TestSystemQueries(t *testing.T) {
 	_ = IsTrusted()
 	_ = IsSecureInput()
-	if FrontmostPID() < 0 {
-		t.Fatal("bad pid")
-	}
 }
 
 func TestTapStartStop(t *testing.T) {

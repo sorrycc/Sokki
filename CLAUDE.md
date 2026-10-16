@@ -10,8 +10,8 @@ no cgo: macOS APIs MyGo lacks are called through purego. arm64 only.
   `app_test.go` headless UI tests
 - `internal/macos/` — purego bindings: event tap, synthesized keys, Accessibility, secure input, workspace, pasteboard
 - `internal/engine/` — trigger trie, buffer, undo, the tap's state machine (`Context`), variables/dates, fuzzy score
-- `internal/expander/` — the running engine: tap handler, injector, AI flow
-- `internal/model/`, `internal/config/`, `internal/ai/`, `internal/prefs/`, `internal/telemetry/`, `internal/logx/`
+- `internal/expander/` — the running engine: tap handler, injector
+- `internal/model/`, `internal/config/`, `internal/prefs/`, `internal/telemetry/`, `internal/logx/`
 - `docs/designs/` — dated design specs (`YYYY-MM-DD-<slug>.md`); start with `2026-10-16-mygo-rewrite.md`
 - `resources/` — bundled into the app (`icon.png`; CI writes the gitignored `telemetry.json`)
 - `mygo.json` (name, identifier `com.sokki.Sokki`, version, updates), `CHANGELOG.md`, `scripts/`

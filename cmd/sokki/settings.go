@@ -1,24 +1,18 @@
 package main
 
 import (
-	"strconv"
-	"strings"
-	"time"
-
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 
-	"sokki/internal/ai"
 	"sokki/internal/logx"
-	"sokki/internal/model"
 	"sokki/internal/prefs"
 )
 
 const settingsTitle = "Sokki Settings"
 
 // settingsWindow is the Settings window: the matches, general settings,
-// the AI's and privacy. It is made the first time it shows, and hides
+// and privacy. It is made the first time it shows, and hides
 // rather than closes.
 type settingsWindow struct {
 	a   *app
@@ -26,7 +20,6 @@ type settingsWindow struct {
 	tab int
 
 	matches matchList
-	aiTest  aiTest
 
 	confirmReset bool
 	// atLogin is whether Sokki opens at login, read as Settings shows.
@@ -71,7 +64,6 @@ func (s *settingsWindow) hide() {
 	if s.win == nil || !s.win.IsVisible() {
 		return
 	}
-	s.aiTest.cancel()
 	s.win.Hide()
 	s.a.release()
 }
@@ -80,11 +72,10 @@ func (s *settingsWindow) view(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.Key1, func() { s.tab = 0 })
 	c.OnShortcut(ui.Cmd, ui.Key2, func() { s.tab = 1 })
 	c.OnShortcut(ui.Cmd, ui.Key3, func() { s.tab = 2 })
-	c.OnShortcut(ui.Cmd, ui.Key4, func() { s.tab = 3 })
 	c.OnShortcut(ui.Cmd, ui.KeyW, s.hide)
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).Padding(10, 12, 0, 12).Justify(ui.Center).Children(func() {
-			ui.Tabs(c, &s.tab, "Matches", "General", "AI", "Privacy")
+			ui.Tabs(c, &s.tab, "Matches", "General", "Privacy")
 		})
 		ui.Column(c).Grow(1).Children(func() {
 			switch s.tab {
@@ -92,8 +83,6 @@ func (s *settingsWindow) view(c *ui.Context) {
 				s.matches.view(c)
 			case 1:
 				s.general(c)
-			case 2:
-				s.aiView(c)
 			default:
 				s.privacy(c)
 			}
@@ -248,182 +237,12 @@ func (s *settingsWindow) general(c *ui.Context) {
 	}
 }
 
-var placeholderOptions = []option{
-	{string(model.PlaceholderStatic), "Static"},
-	{string(model.PlaceholderBraille), "Braille"},
-	{string(model.PlaceholderBlockSweep), "Block sweep"},
-}
-
-func (s *settingsWindow) aiView(c *ui.Context) {
-	cfg := &s.a.store.Config.AI
-	changed := false
-	ui.Scroll(c).Grow(1).Children(func() {
-		ui.Column(c).Padding(16, 20).Gap(18).Children(func() {
-			muted(c, "AI features are powered by your locally-installed Claude Code CLI.")
-			section(c, "Model", func() {
-				ui.Field(c, "Model", func() {
-					changed = ui.TextInput(c, &cfg.Model).Width(260).Changed() || changed
-				})
-				ui.Field(c, "Claude binary", func() {
-					binary := deref(cfg.Binary)
-					if ui.TextInput(c, &binary).Width(260).Placeholder("Auto-detect").Changed() {
-						if binary == "" {
-							cfg.Binary = nil
-						} else {
-							cfg.Binary = &binary
-						}
-						s.a.exp.Rewriter.Resolver.Invalidate()
-						changed = true
-					}
-				}).Description("Path to the `claude` CLI. Leave blank to auto-detect: ~/.claude/local/claude, ~/.local/bin/claude, /opt/homebrew/bin/claude, /usr/local/bin/claude, then shell lookup.")
-				ui.Field(c, "Timeout (seconds)", func() {
-					changed = number(c, &cfg.TimeoutSeconds, 1, 600) || changed
-				}).Description("Max seconds to wait for the AI response before failing.")
-				ui.Field(c, "Selection capture timeout (ms)", func() {
-					changed = number(c, &cfg.SelectionCaptureTimeoutMs, 50, 5000) || changed
-				})
-			})
-			section(c, "Placeholder", func() {
-				ui.Field(c, "Placeholder style", func() {
-					style := string(cfg.PlaceholderStyle)
-					if choose(c, &style, placeholderOptions) {
-						cfg.PlaceholderStyle = model.PlaceholderStyle(style)
-						changed = true
-					}
-				})
-			})
-			s.aiTest.view(c, s)
-		})
-	})
-	if changed {
-		s.a.saveConfig()
-	}
-}
-
-func deref(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-// aiTest is the AI tab's "Test connection": a round trip through claude.
-type aiTest struct {
-	running bool
-	gen     int
-	rw      *ai.Rewriter
-	ok      bool
-	failed  bool
-	binary  string
-	model   string
-	reply   string
-	detail  string
-}
-
-func (t *aiTest) view(c *ui.Context, s *settingsWindow) {
-	ui.Column(c).Gap(8).Children(func() {
-		ui.Text(c, "Test").Bold().FontSize(13)
-		ui.Column(c).Padding(12).Gap(8).Radius(8).Background(c.Theme().Surface).Children(func() {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				label := "Test connection"
-				if t.running {
-					label = "Cancel"
-				}
-				if ui.Button(c, label).Clicked() {
-					if t.running {
-						t.cancel()
-					} else {
-						t.start(s)
-					}
-				}
-				if t.running {
-					ui.Spinner(c)
-				}
-			})
-			th := c.Theme()
-			switch {
-			case t.running:
-				muted(c, "Running…")
-			case t.ok:
-				ui.Text(c, "✓ Connection OK").TextColor(th.Success).Bold()
-				caption(c, "Binary: "+t.binary).SingleLine()
-				caption(c, "Model: "+t.model).SingleLine()
-				caption(c, "Reply: "+t.reply).MaxLines(3)
-			case t.failed:
-				ui.Text(c, "✕ Test failed").TextColor(th.Danger).Bold()
-				caption(c, t.detail).MaxLines(8)
-			}
-		})
-	})
-}
-
-func (t *aiTest) start(s *settingsWindow) {
-	cfg := s.a.store.Config.AI
-	t.cancel()
-	t.gen++
-	gen := t.gen
-	t.running, t.ok, t.failed = true, false, false
-	resolver := &ai.Resolver{}
-	t.rw = &ai.Rewriter{Resolver: resolver, ScratchDir: ai.ScratchDir()}
-	rw := t.rw
-	timeout := time.Duration(max(cfg.TimeoutSeconds, 1)) * time.Second
-	go func() {
-		path, found := resolver.Resolve(deref(cfg.Binary))
-		if !found {
-			path = "(not found)"
-		}
-		res := rw.Run(ai.Request{Prompt: "ping", Model: cfg.Model, Timeout: timeout, UserArgs: cfg.Args, Binary: deref(cfg.Binary)})
-		s.win.Update(func() {
-			if gen != t.gen || res.Outcome == ai.Canceled {
-				return
-			}
-			t.running = false
-			switch res.Outcome {
-			case ai.Completed:
-				t.ok, t.binary, t.model, t.reply = true, path, cfg.Model, truncate(strings.TrimSpace(res.Text), 200)
-			case ai.Failed:
-				t.failed, t.detail = true, testDetail(res.Reason, path, timeout)
-			}
-		})
-	}()
-}
-
-func (t *aiTest) cancel() {
-	if t.rw != nil {
-		t.rw.Cancel()
-		t.rw = nil
-	}
-	t.gen++
-	t.running, t.ok, t.failed = false, false, false
-}
-
 func truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
 		return s
 	}
 	return string(r[:n]) + "…"
-}
-
-func testDetail(r ai.Reason, binary string, timeout time.Duration) string {
-	var header string
-	switch r.Kind {
-	case ai.ReasonBinaryMissing:
-		return "`claude` binary not found.\nSet a path in 'Claude binary' above, or install the Claude Code CLI."
-	case ai.ReasonAuthRequired:
-		header = "Not signed in to Claude Code CLI.\nRun `claude` in a terminal and sign in, then retry."
-	case ai.ReasonTimeout:
-		header = "Timed out after " + timeout.String() + ".\nIncrease the Timeout field above or check your network."
-	case ai.ReasonNonZeroExit:
-		tail := strings.TrimSpace(r.Tail)
-		if tail == "" {
-			tail = "(no stderr output)"
-		}
-		header = "CLI exited with code " + strconv.Itoa(r.Code) + ":\n" + truncate(tail, 500)
-	default:
-		header = "Protocol error: " + r.Detail
-	}
-	return header + "\nBinary: " + binary
 }
 
 func (s *settingsWindow) privacy(c *ui.Context) {

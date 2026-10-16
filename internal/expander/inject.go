@@ -60,8 +60,7 @@ func (in *Injector) erase(count int, cfg model.Config) {
 }
 
 // Type types text as key events of at most 200 UTF-16 units, without
-// touching what is before the caret: the AI's placeholder and reply, and
-// a trigger restored by undo. It pauses between chunks, which apps that
+// touching what is before the caret: a trigger restored by undo. It pauses between chunks, which apps that
 // throttle input (Electron) need.
 func (in *Injector) Type(text string) {
 	if text == "" {

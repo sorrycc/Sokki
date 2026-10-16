@@ -6,19 +6,6 @@ import (
 	"github.com/ebitengine/purego/objc"
 )
 
-// FrontmostPID returns the process ID of the app with the keyboard, or 0.
-func FrontmostPID() int {
-	var pid int
-	withPool(func() {
-		ws := class("NSWorkspace").Send(sel("sharedWorkspace"))
-		app := ws.Send(sel("frontmostApplication"))
-		if app != 0 {
-			pid = int(objc.Send[int32](app, sel("processIdentifier")))
-		}
-	})
-	return pid
-}
-
 // ActivateApp brings the app with process ID pid to the front.
 func ActivateApp(pid int) {
 	if pid <= 0 {
