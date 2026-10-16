@@ -4,8 +4,17 @@ All notable changes to Sokki are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
 ## Unreleased
+
+- **Sokki is rewritten in Go**, its windows drawn by MyGo's native UI. Every feature stays, and so do your matches and settings in `~/.config/sokki`.
+- **Updates** now come from GitHub releases, with smaller delta updates and a new update window. Sokki 0.0.16 does not update to this version by itself: download it once from the releases page and replace the app in Applications; the Accessibility permission should carry over.
+- **Palette** no longer makes Sokki the active app while it shows: the app you were typing in keeps the front, and the chosen match is typed into it without switching back.
+- **Recent Activity**, **Settings** and the **Match editor** are redrawn; the editor is now a window of its own, from Settings, the palette (⌘↵) and the HUD alike. ⌘↵ saves it.
+- `{{date:…}}` also takes strftime formats such as `%Y-%m-%d`, beside the Unicode patterns such as `yyyy-MM-dd`.
+- Fix: editing a match in Settings no longer loses the edit when the match files reload meanwhile.
+- Crash reports now cover crashes of the app itself, which leave a crash log that is sent at the next launch (when crash reports are on).
 
 
 ## 0.0.16 - 2026-06-29

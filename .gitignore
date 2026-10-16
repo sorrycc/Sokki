@@ -1,11 +1,14 @@
+/build/
+/.mygo/
 /.build
-/build
 /Sokki.app
-.DS_Store
-*.xcodeproj
-.swiftpm/
 /tmp
+.DS_Store
+*.test
+/sokki
+/cmd/sokki/sokki
 /.env
-/Scripts/telemetry.config
+# Written by the release workflow from its secrets; without it the app
+# sends no telemetry.
+/resources/telemetry.json
 .claude/worktrees/
-

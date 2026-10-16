@@ -1,0 +1,19 @@
+{
+  "name": "Sokki",
+  "identifier": "com.sokki.Sokki",
+  "version": "0.1.0",
+  "main": "./cmd/sokki",
+  "out": "build",
+  "macos": {
+    "minimumSystemVersion": "14.0",
+    "infoPlist": {
+      "LSUIElement": true,
+      "LSApplicationCategoryType": "public.app-category.productivity",
+      "NSHumanReadableCopyright": "© 2026 sorrycc"
+    }
+  },
+  "updates": {
+    "publicKey": "IsXYur6uqcgdxedeSXRwJiYvRNyHGoTLjfeksSERX2g=",
+    "github": "sorrycc/Sokki"
+  }
+}
