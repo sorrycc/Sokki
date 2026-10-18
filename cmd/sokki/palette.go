@@ -36,6 +36,10 @@ type palette struct {
 	// store's generation foldedGen.
 	folded    []folded
 	foldedGen uint64
+	q         []rune // the query, folded, as of the last filter
+	// rowMarks are where q matches the rows shown, by match, made as
+	// they show and dropped at each filter.
+	rowMarks  map[int64]rowMarks
 	clipboard string // a snapshot, for the preview
 
 	// previewText is the preview of the match previewID, whose replacement
@@ -108,6 +112,10 @@ func (p *palette) hide() {
 	}
 }
 
+// rowMarks are where the query matches a row: its title, or else its
+// trigger.
+type rowMarks struct{ title, trigger []int }
+
 type scored struct {
 	m     model.Match
 	score int
@@ -129,6 +137,8 @@ func (p *palette) filter() {
 		}
 	}
 	q := engine.Fold(strings.TrimSpace(p.query))
+	p.q = q
+	clear(p.rowMarks)
 	recent := p.a.recency.Snapshot()
 	found := p.found[:0]
 	for i, m := range p.a.store.Matches {
@@ -323,17 +333,63 @@ func (p *palette) row(c *ui.Context, i int) {
 		row.Background(t.Text.Alpha(0.05))
 	}
 	row.Children(func() {
+		title := matchTitle(m)
+		marks := p.rowMarksOf(m, title)
+		titleMarks, triggerMarks := marks.title, marks.trigger
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-			ui.Text(c, matchTitle(m)).TextColor(text).SingleLine().Ellipsis("…")
+			var e ui.Element
+			if titleMarks != nil {
+				mark := ui.Span{Weight: 700}
+				if !chosen {
+					mark.Color = t.Accent
+				}
+				e = ui.RichText(c, marked(title, titleMarks, mark)...)
+			} else {
+				e = titleText(c, title, chosen)
+			}
+			e.TextColor(text).SingleLine().Ellipsis("…")
 			if m.Label != "" {
 				ui.Text(c, firstLine(m.Replace)).FontSize(11).TextColor(mutedColor).SingleLine().Ellipsis("…")
 			}
 		})
-		keycap(c, m.Trigger, chosen).Shrink(0).MaxWidth(110).Ellipsis("…")
+		keycapMarked(c, m.Trigger, chosen, triggerMarks).Shrink(0).MaxWidth(110).Ellipsis("…")
 	})
 	if row.Clicked() {
 		p.commit(m)
 	}
+}
+
+// rowMarksOf returns where the query matches m's row, whose title is
+// title, worked out once per filter.
+func (p *palette) rowMarksOf(m model.Match, title string) rowMarks {
+	if len(p.q) == 0 {
+		return rowMarks{}
+	}
+	if r, ok := p.rowMarks[m.ID]; ok {
+		return r
+	}
+	r := rowMarks{title: p.marks(title)}
+	if r.title == nil {
+		r.trigger = p.marks(m.Trigger)
+	}
+	if p.rowMarks == nil {
+		p.rowMarks = map[int64]rowMarks{}
+	}
+	p.rowMarks[m.ID] = r
+	return r
+}
+
+// marks returns where the query matches s, for the palette to show in
+// bold, or nil. A text whose case folds to more or fewer runes has none.
+func (p *palette) marks(s string) []int {
+	if len(p.q) == 0 {
+		return nil
+	}
+	f := engine.Fold(s)
+	if len(f) != utf8.RuneCountInString(s) {
+		return nil
+	}
+	return engine.FuzzyPositions(p.q, f)
 }
 
 func (p *palette) preview(c *ui.Context) {
@@ -368,6 +424,10 @@ func (p *palette) preview(c *ui.Context) {
 			if strings.Contains(m.Replace, "{{") {
 				caption(c, "·")
 				caption(c, "Variables filled in as of now").SingleLine().Ellipsis("…").Shrink(1)
+			}
+			ui.Spacer(c)
+			if at, ok := p.a.recency.Last(m.Trigger); ok {
+				caption(c, "Used "+ago(at, time.Now())).SingleLine()
 			}
 		})
 	})

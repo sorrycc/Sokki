@@ -170,6 +170,9 @@ func (l *matchList) view(c *ui.Context) {
 			}).OnClick(func() { l.newMatch("") })
 		})
 		ui.Divider(c)
+		if !l.a.trusted {
+			accessBanner(c, l.a)
+		}
 
 		if len(l.shown) == 0 {
 			ui.Column(c).Grow(1).Children(func() {
@@ -207,6 +210,21 @@ func (l *matchList) view(c *ui.Context) {
 			l.a.store.Remove(l.toDelete.ID)
 		}
 	}
+}
+
+// accessBanner asks for the Accessibility permission, without which no
+// match expands.
+func accessBanner(c *ui.Context, a *app) {
+	t := c.Theme()
+	ui.Row(c).Padding(10, 16, 10, 20).Gap(12).AlignItems(ui.Center).Background(t.Warning.Alpha(0.1)).
+		BorderWidth(0, 0, 0.5, 0).BorderColor(t.Warning.Alpha(0.25)).Children(func() {
+		ui.Icon(c, iconWarning).FontSize(16).TextColor(t.Warning)
+		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+			ui.Text(c, "Sokki needs Accessibility access").FontWeight(600)
+			caption(c, "Until you allow it in System Settings, Sokki can't see what you type, and no trigger expands.").Wrap()
+		})
+		ui.Button(c, "Open System Settings").OnClick(a.grantAccess)
+	})
 }
 
 // list is the column of matches, one row each.
@@ -268,7 +286,7 @@ func (l *matchList) row(c *ui.Context, i int) {
 	}
 	row.Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Opacity(enabledOpacity(m)).Children(func() {
-			ui.Text(c, matchTitle(m)).FontWeight(500).TextColor(text).SingleLine().Ellipsis("…")
+			titleText(c, matchTitle(m), chosen).FontWeight(500).TextColor(text).SingleLine().Ellipsis("…")
 			sub := firstLine(m.Replace)
 			if m.Label == "" {
 				sub = summary(m.Replace)
@@ -311,6 +329,19 @@ func matchTitle(m model.Match) string {
 		return s
 	}
 	return m.Trigger
+}
+
+// titleText shows a match's title, its variables in the accent's color
+// but on a chosen row, which is the accent's color already.
+func titleText(c *ui.Context, s string, chosen bool) ui.Element {
+	if chosen || !strings.Contains(s, "{{") {
+		return ui.Text(c, s)
+	}
+	spans := replacementSpans(c, s)
+	for i := range spans {
+		spans[i].Background, spans[i].Radius = ui.Color{}, 0
+	}
+	return ui.RichText(c, spans...)
 }
 
 func enabledOpacity(m model.Match) float32 {
@@ -360,17 +391,23 @@ func (l *matchList) detail(c *ui.Context) {
 					}
 				})
 				section(c, "Replacement", func() {
-					textPlate(c, m.Replace)
+					replacementPlate(c, m.Replace)
 				})
 				if strings.Contains(m.Replace, "{{") {
 					section(c, "Preview", func() {
 						textPlate(c, l.preview(m))
 					})
 				}
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					caption(c, summary(m.Replace)).FontFeatures("tnum")
-					caption(c, "·")
-					caption(c, l.delivery(m)).SingleLine().Ellipsis("…").Shrink(1)
+				section(c, "Details", func() {
+					used := "Never"
+					if at, ok := l.a.recency.Last(m.Trigger); ok {
+						used = ago(at, time.Now())
+					}
+					facts(c, [][2]string{
+						{"Length", summary(m.Replace)},
+						{"Inserted", l.delivery(m)},
+						{"Last used", used},
+					})
 				})
 			})
 		})
@@ -381,6 +418,23 @@ func (l *matchList) detail(c *ui.Context) {
 			ui.Spacer(c)
 			iconButton(c, iconTrash, "Delete match").OnClick(func() { l.requestDelete(m) })
 		})
+	})
+}
+
+// facts shows pairs of a name and a value, one a row, on a card.
+func facts(c *ui.Context, rows [][2]string) {
+	t := c.Theme()
+	ui.Column(c).Radius(8).Border(0.5, t.Border.Alpha(0.7)).Clip().Children(func() {
+		for i, r := range rows {
+			row := ui.Row(c).Padding(7, 12).Gap(12).AlignItems(ui.Center)
+			if i > 0 {
+				row.BorderWidth(0.5, 0, 0, 0).BorderColor(t.Border.Alpha(0.6))
+			}
+			row.Children(func() {
+				muted(c, r[0]).FontSize(12).Width(76).Shrink(0).SingleLine()
+				ui.Text(c, r[1]).FontSize(12).FontFeatures("tnum").SingleLine().Ellipsis("…").Grow(1).Shrink(1).Selectable()
+			})
+		}
 	})
 }
 

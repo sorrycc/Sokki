@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -285,5 +286,25 @@ func TestFuzzyScore(t *testing.T) {
 	}
 	if s, ok := FuzzyScore("", "x"); !ok || s != 0 {
 		t.Fatal("empty query")
+	}
+}
+
+func TestVariables(t *testing.T) {
+	s := "Hi {{clipboard}}, it is {{date:yyyy}} {{x"
+	got := Variables(s)
+	if len(got) != 2 || s[got[0][0]:got[0][1]] != "{{clipboard}}" || s[got[1][0]:got[1][1]] != "{{date:yyyy}}" {
+		t.Fatalf("Variables = %v", got)
+	}
+	if Variables("plain") != nil {
+		t.Fatal("plain text has variables")
+	}
+}
+
+func TestFuzzyPositions(t *testing.T) {
+	if got := FuzzyPositions(Fold("hlo"), Fold("Hello")); !slices.Equal(got, []int{0, 2, 4}) {
+		t.Fatalf("positions %v", got)
+	}
+	if FuzzyPositions(Fold("xyz"), Fold("Hello")) != nil {
+		t.Fatal("matched what is not there")
 	}
 }

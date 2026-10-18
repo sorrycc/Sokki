@@ -169,6 +169,52 @@ func (s *settingsWindow) sidebar(c *ui.Context) {
 	if sb.Changed() {
 		s.setPage(page)
 	}
+	s.statusCard(c)
+}
+
+// statusCard, at the foot of the sidebar, says whether Sokki is expanding
+// triggers, with a switch to pause it, or what it needs to.
+func (s *settingsWindow) statusCard(c *ui.Context) {
+	t := c.Theme()
+	st := s.a.status()
+	ui.Column(c).Padding(8, 10, 12, 10).Children(func() {
+		ui.Column(c).Padding(10, 12).Gap(10).Radius(10).Background(t.Text.Alpha(0.05)).Border(0.5, t.Text.Alpha(0.06)).Children(func() {
+			ui.Row(c).Gap(9).AlignItems(ui.Center).Children(func() {
+				switch {
+				case st.attention:
+					ui.Icon(c, iconWarning).FontSize(14).TextColor(t.Warning)
+				case st.on:
+					dot(c, t.Success)
+				case s.a.secure:
+					dot(c, t.Warning)
+				default:
+					dot(c, t.TextMuted.Alpha(0.6))
+				}
+				ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
+					title, detail := "Sokki is on", "Active in all apps"
+					switch {
+					case st.attention:
+						title, detail = "Needs access", "Sokki can't see what you type"
+					case s.a.secure:
+						title, detail = "Paused", "A password field is active"
+					case !st.on:
+						title, detail = "Paused", "Triggers don't expand"
+					}
+					ui.Text(c, title).FontSize(12).FontWeight(600).SingleLine()
+					caption(c, detail).Wrap()
+				})
+				if !st.attention {
+					on := s.a.store.Config.Enabled
+					if ui.Switch(c, &on).Label("Expand triggers").Tooltip("Pause or resume Sokki").Changed() {
+						s.a.setEnabled(on)
+					}
+				}
+			})
+			if st.attention {
+				ui.PrimaryButton(c, "Grant Access…").Label("Grant Accessibility access").OnClick(s.a.grantAccess)
+			}
+		})
+	})
 }
 
 func sidebarCount(c *ui.Context, n int) {

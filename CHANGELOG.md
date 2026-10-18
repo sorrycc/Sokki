@@ -20,6 +20,13 @@ The update window shows the section of the version it offers: every release need
 - The palette's preview shows the match's title, trigger and file, and the editor's replacement field grows with its window.
 - The delays and the paste threshold in General show their units.
 - Typing is lighter still: each key typed costs the event tap about half the time it did, with no allocations but its log line, and replacements are typed without making a new event source for every character.
+- **Accessibility access** is asked for where you see it: until it is granted, Settings shows a banner with a button to the right pane of System Settings, and the menu bar menu has a Grant Accessibility Access item.
+- Settings' sidebar ends with Sokki's state (on, paused, paused for a password, or needing access) and a switch to pause it.
+- Variables such as `{{clipboard}}` and `{{date:…}}` show in the accent color in the match list, the match's replacement and the editor, and Insert Variable puts them where the caret is instead of at the end.
+- The palette shows in bold where your search matched each match's title or trigger, and when the chosen match was last used.
+- A match's details say how long it is, whether it is typed or pasted, and when it was last used; typing a trigger now counts as a use, so the palette ranks the matches you type most recently first too.
+- The match editor and Recent Activity draw their own title bars, the editor with what it edits and the file it saves to, and Recent Activity names the match each expansion typed.
+- The welcome on first launch says how to try Sokki and opens Settings.
 
 ## 0.1.1
 

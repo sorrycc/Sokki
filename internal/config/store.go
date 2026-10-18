@@ -154,7 +154,7 @@ func (s *Store) save() {
 	s.changed()
 }
 
-// Recency keeps when each trigger was last used from the palette, in
+// Recency keeps when each trigger was last used, typed or from the palette, in
 // recency.json, written a second after the last use. It is keyed by
 // trigger since matches get new IDs at every load.
 type Recency struct {
@@ -182,6 +182,14 @@ func (r *Recency) Snapshot() map[string]time.Time {
 		out[k] = v
 	}
 	return out
+}
+
+// Last returns when trigger was last used.
+func (r *Recency) Last(trigger string) (time.Time, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.used[trigger]
+	return t, ok
 }
 
 // Bump marks trigger used now.

@@ -32,11 +32,14 @@ func (a *app) updateTray() {
 		return
 	}
 	alpha := 1.0
-	if !a.store.Config.Enabled || a.secure {
+	if !a.store.Config.Enabled || a.secure || !a.trusted {
 		alpha = 0.35
 	}
 	a.tray.SetIcon(trayIcon(alpha), true)
 	tip := "Sokki"
+	if !a.trusted {
+		tip = "Sokki needs Accessibility access"
+	}
 	if a.store.LastError != "" {
 		tip = "Sokki: " + a.store.LastError
 	}
@@ -50,15 +53,11 @@ func (a *app) trayMenu() *mygo.Menu {
 		return func(*mygo.MenuItem, *mygo.Window) { fn() }
 	}
 	cfg := a.store.Config
-	status := "Sokki is on"
-	switch {
-	case a.secure:
-		status = "Paused while you type a password"
-	case !cfg.Enabled:
-		status = "Sokki is paused"
-	}
 	items := []*mygo.MenuItem{
-		{Label: status, Disabled: true},
+		{Label: a.status().text, Disabled: true},
+	}
+	if !a.trusted {
+		items = append(items, &mygo.MenuItem{Label: "Grant Accessibility Access…", Click: click(a.grantAccess)})
 	}
 	if a.store.LastError != "" {
 		items = append(items, &mygo.MenuItem{Label: "⚠ A match file has an error", Click: click(func() { a.settings.showPage(matchesPage) })})
@@ -106,6 +105,26 @@ func (a *app) trayMenu() *mygo.Menu {
 		&mygo.MenuItem{Label: "Quit Sokki", Accelerator: "Cmd+Q", Click: click(mygo.App.Quit)},
 	)
 	return mygo.NewMenu(items)
+}
+
+// state is what Sokki is doing, as the menu bar and Settings say it.
+type state struct {
+	text string
+	// on is whether triggers expand; attention whether the user is
+	// needed for them to.
+	on, attention bool
+}
+
+func (a *app) status() state {
+	switch {
+	case !a.trusted:
+		return state{text: "Sokki needs Accessibility access", attention: true}
+	case a.secure:
+		return state{text: "Paused while you type a password"}
+	case !a.store.Config.Enabled:
+		return state{text: "Sokki is paused"}
+	}
+	return state{text: "Sokki is on", on: true}
 }
 
 // trayIcons are the menu bar icons drawn so far, by alpha.

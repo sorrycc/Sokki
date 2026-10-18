@@ -20,11 +20,11 @@ import (
 
 // testApp is an app over a temporary configuration, with no windows: the
 // views are run by testers.
-func testApp(t *testing.T) *app {
+func testApp(t testing.TB) *app {
 	t.Helper()
 	root := t.TempDir()
 	logx.SetDir(filepath.Join(root, "logs"))
-	a := &app{dir: config.Dir(filepath.Join(root, "sokki")), mainQueue: make(chan func(), 16)}
+	a := &app{dir: config.Dir(filepath.Join(root, "sokki")), mainQueue: make(chan func(), 16), trusted: true}
 	a.dir.Bootstrap()
 	a.store = config.NewStore(a.dir)
 	a.recency = config.NewRecency(a.dir)
@@ -40,7 +40,7 @@ func testApp(t *testing.T) *app {
 }
 
 // shot saves what the tester shows to $SOKKI_SHOTS/name.png, when set.
-func shot(t *testing.T, tt *ui.Tester, name string) {
+func shot(t testing.TB, tt *ui.Tester, name string) {
 	dir := os.Getenv("SOKKI_SHOTS")
 	if dir == "" {
 		return
@@ -195,8 +195,9 @@ func TestGeneralSavesConfig(t *testing.T) {
 func TestEditorSavesNewMatch(t *testing.T) {
 	a := testApp(t)
 	e := a.editor
-	e.existing, e.trigger, e.file, e.enabled = 0, ":", config.DefaultMatchFile, true
-	tt := ui.NewTester(e.view, 560, 520)
+	e.existing, e.trigger, e.file, e.enabled, e.title = 0, ":", config.DefaultMatchFile, true, "New Match"
+	tt := ui.NewTester(e.view, 560, 540)
+	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 78})
 	if !tt.HasText("Trigger") || !tt.HasText("Replacement") {
 		t.Fatalf("editor: %q", tt.Texts())
 	}
@@ -216,6 +217,26 @@ func TestEditorSavesNewMatch(t *testing.T) {
 	m := a.store.Matches[len(a.store.Matches)-1]
 	if m.Trigger != ":bye" || m.Replace != "Goodbye!" || m.SourceFile != "default.yml" {
 		t.Fatalf("saved %+v", m)
+	}
+}
+
+func TestEditorInsertsAtCaret(t *testing.T) {
+	a := testApp(t)
+	e := a.editor
+	e.trigger, e.replace, e.file, e.enabled = ":x", "ab", config.DefaultMatchFile, true
+	e.insert("{{clipboard}}") // never focused: at the end
+	if e.replace != "ab{{clipboard}}" {
+		t.Fatalf("replace %q", e.replace)
+	}
+	e.selStart, e.selEnd, e.selKnown = 1, 1, true
+	e.insert("é")
+	if e.replace != "aéb{{clipboard}}" || e.caret != 2 {
+		t.Fatalf("replace %q caret %d", e.replace, e.caret)
+	}
+	tt := ui.NewTester(e.view, 560, 540)
+	tt.Frame()
+	if !tt.HasText("Preview") {
+		t.Fatalf("editor: %q", tt.Texts())
 	}
 }
 
@@ -254,6 +275,10 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 		t.Fatalf("chosen %d", p.chosen)
 	}
 	shot(t, tt, "palette")
+	p.query = "hi"
+	p.filter()
+	tt.Frame()
+	shot(t, tt, "palette-search")
 	p.query = "zzz"
 	p.filter()
 	tt.Frame()
@@ -301,12 +326,14 @@ func TestMatchesDetail(t *testing.T) {
 	if !tt.HasText("Preview") {
 		t.Fatalf("no preview for :today: %q", tt.Texts())
 	}
+	shot(t, tt, "matches-variables")
 }
 
 func TestHUD(t *testing.T) {
 	a := testApp(t)
 	h := a.hud
 	tt := ui.NewTester(h.view, 380, 460)
+	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 58})
 	if !tt.HasText("No Recent Activity") {
 		t.Fatalf("empty: %q", tt.Texts())
 	}
@@ -353,5 +380,52 @@ func TestTrayIcon(t *testing.T) {
 	if dir := os.Getenv("SOKKI_SHOTS"); dir != "" {
 		os.MkdirAll(dir, 0o755)
 		os.WriteFile(filepath.Join(dir, "tray.png"), trayIcon(1), 0o644)
+	}
+}
+
+func TestAccessibilityNeeded(t *testing.T) {
+	a := testApp(t)
+	a.trusted = false
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	for _, want := range []string{"Sokki needs Accessibility access", "Open System Settings", "Needs access", "Grant Access…"} {
+		if !tt.HasText(want) {
+			t.Fatalf("no %q in %q", want, tt.Texts())
+		}
+	}
+	if st := a.status(); !st.attention || st.on {
+		t.Fatalf("status %+v", st)
+	}
+	shot(t, tt, "needs-access")
+	a.trusted = true
+	tt.Frame()
+	if tt.HasText("Open System Settings") || !tt.HasText("Sokki is on") {
+		t.Fatalf("still asks: %q", tt.Texts())
+	}
+	// Its switch pauses Sokki, and the pause is saved.
+	if err := tt.Click("Expand triggers"); err != nil {
+		t.Fatal(err)
+	}
+	if a.store.Config.Enabled || a.dir.Load().Config.Enabled {
+		t.Fatal("not paused")
+	}
+	if !tt.HasText("Paused") {
+		t.Fatalf("status: %q", tt.Texts())
+	}
+}
+
+func TestAgo(t *testing.T) {
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.Local)
+	cases := map[time.Duration]string{
+		10 * time.Second:    "just now",
+		5 * time.Minute:     "5 minutes ago",
+		1 * time.Hour:       "1 hour ago",
+		30 * time.Hour:      "yesterday",
+		72 * time.Hour:      "3 days ago",
+		30 * 24 * time.Hour: "September 18",
+	}
+	for d, want := range cases {
+		if got := ago(now.Add(-d), now); got != want {
+			t.Errorf("ago(%v) = %q, want %q", d, got, want)
+		}
 	}
 }

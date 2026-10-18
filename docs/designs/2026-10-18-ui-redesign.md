@@ -97,3 +97,30 @@ replacement to lower-case runes for every key typed in its search; it
 folds them once per change of the store (`engine.Fold`,
 `FuzzyScoreFolded`). The store's file list and counts, which Settings'
 sidebar asks for every frame, are derived once per generation.
+
+## Third pass: state, variables, search
+
+- **Accessibility**: `app.trusted` follows the permission (`RequestTrust`
+  at launch, `waitForTrust` after). Untrusted, the Matches page shows a
+  banner and the tray menu an item, both opening the Accessibility pane of
+  System Settings (`accessibilitySettings`); the tray icon dims.
+- **Status card**: the foot of Settings' sidebar says what `app.status`
+  says (on, paused, paused for secure input, needs access), with the
+  Enabled switch, saved as General's is (`app.setEnabled`).
+- **Variables** (`engine.Variables`) are drawn apart: in the accent's color
+  on a tint in the replacement's plate (`replacementPlate`), in its color
+  in the list's titles (`titleText`) and in the editor's text area
+  (`TextRanges`). Insert Variable replaces the area's last selection
+  (`editorWindow.insert`) and puts the caret after it.
+- **Palette search** shows the runes the query matched in bold
+  (`engine.FuzzyPositions`, `marked`), in the title or else the trigger,
+  worked out once per filter for the rows that show.
+- **Last used**: an expansion bumps its trigger's recency as the palette
+  does (`app.recordEvent`), which the palette ranks by; the detail's facts
+  card and the palette's footer say it (`ago`).
+- **Editor and Recent Activity** hide their title bars and draw a header
+  under the window's controls that drags the window. Recent Activity
+  keeps the title of the match each expansion typed, as of then.
+- **Benchmarks** (`cmd/sokki/bench_test.go`): a frame of Matches over 2000
+  matches that changes nothing takes about 0.17 ms; a key typed in the
+  palette over them, its filter and frame, about 0.5 ms.

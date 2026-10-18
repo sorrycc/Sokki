@@ -44,6 +44,20 @@ func RenderPreview(template, clipboardSnapshot string, now time.Time) string {
 	})
 }
 
+// Variables returns where the variables of a replacement are, as pairs of
+// byte offsets, the start and end of each {{…}}: views show them apart
+// from the text around them.
+func Variables(template string) [][2]int {
+	if !strings.Contains(template, "{{") {
+		return nil
+	}
+	var out [][2]int
+	for _, m := range variablePattern.FindAllStringIndex(template, -1) {
+		out = append(out, [2]int{m[0], m[1]})
+	}
+	return out
+}
+
 func substitute(template string, resolve func(name, params string, hasParams bool) string) string {
 	matches := variablePattern.FindAllStringSubmatchIndex(template, -1)
 	if len(matches) == 0 {
@@ -353,4 +367,23 @@ func FuzzyScoreFolded(q, t []rune) (int, bool) {
 		score += 5
 	}
 	return score, true
+}
+
+// FuzzyPositions returns which runes of t the folded query q matches, as
+// FuzzyScoreFolded matches them, in order, or nil when it does not: the
+// palette shows them in bold.
+func FuzzyPositions(q, t []rune) []int {
+	if len(q) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(q))
+	for ti := 0; len(out) < len(q) && ti < len(t); ti++ {
+		if q[len(out)] == t[ti] {
+			out = append(out, ti)
+		}
+	}
+	if len(out) != len(q) {
+		return nil
+	}
+	return out
 }

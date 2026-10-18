@@ -2,9 +2,14 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+
+	"sokki/internal/engine"
 )
 
 // The icons are Lucide's (ISC license), drawn in the color of the text.
@@ -34,6 +39,7 @@ var (
 	iconPaused   = svgIcon("circle-pause")
 	iconWarning  = svgIcon("triangle-alert")
 	iconTrash    = svgIcon("trash-2")
+	iconPencil   = svgIcon("pencil")
 )
 
 // appIcon returns Sokki's icon, decoded the first time it shows.
@@ -49,13 +55,130 @@ var appIcon = sync.OnceValue(func() *ui.Bitmap {
 // keycap shows a trigger as a key would: monospaced, on a light plate,
 // in the accent's colors on a chosen row.
 func keycap(c *ui.Context, s string, chosen bool) ui.Element {
+	return keycapMarked(c, s, chosen, nil)
+}
+
+// keycapMarked is a keycap with the runes at marks in bold, the palette's
+// search matched there.
+func keycapMarked(c *ui.Context, s string, chosen bool, marks []int) ui.Element {
 	t := c.Theme()
 	fg, bg, border := t.Text, t.Text.Alpha(0.06), t.Text.Alpha(0.1)
 	if chosen {
 		fg, bg, border = t.AccentText, t.AccentText.Alpha(0.18), t.AccentText.Alpha(0.25)
 	}
-	return ui.Text(c, s).Font("monospace").FontSize(12).TextColor(fg).SingleLine().
+	var e ui.Element
+	if marks == nil {
+		e = ui.Text(c, s)
+	} else {
+		mark := ui.Span{Weight: 700}
+		if !chosen {
+			mark.Color = t.Accent
+		}
+		e = ui.RichText(c, marked(s, marks, mark)...)
+	}
+	return e.Font("monospace").FontSize(12).TextColor(fg).SingleLine().
 		Padding(2, 7).Radius(5).Background(bg).Border(0.5, border)
+}
+
+// marked splits s into spans, the runes at marks (ascending rune indexes)
+// in the style of mark, the rest plain.
+func marked(s string, marks []int, mark ui.Span) []ui.Span {
+	var spans []ui.Span
+	start, i, m := 0, 0, 0
+	inMark := false
+	for b := range s {
+		on := m < len(marks) && marks[m] == i
+		if on {
+			m++
+		}
+		if b > start && on != inMark {
+			spans = append(spans, styled(s[start:b], inMark, mark))
+			start = b
+		}
+		inMark = on
+		i++
+	}
+	if start < len(s) {
+		spans = append(spans, styled(s[start:], inMark, mark))
+	}
+	return spans
+}
+
+func styled(text string, on bool, mark ui.Span) ui.Span {
+	if !on {
+		return ui.Span{Text: text}
+	}
+	mark.Text = text
+	return mark
+}
+
+// replacementSpans shows a replacement with its variables apart, in the
+// accent's color on a tint of it, as code within text.
+func replacementSpans(c *ui.Context, s string) []ui.Span {
+	vars := engine.Variables(s)
+	if vars == nil {
+		return []ui.Span{{Text: s}}
+	}
+	t := c.Theme()
+	spans := make([]ui.Span, 0, 2*len(vars)+1)
+	last := 0
+	for _, v := range vars {
+		if v[0] > last {
+			spans = append(spans, ui.Span{Text: s[last:v[0]]})
+		}
+		spans = append(spans, ui.Span{Text: s[v[0]:v[1]], Color: t.Accent, Background: t.Accent.Alpha(0.12), Radius: 3})
+		last = v[1]
+	}
+	if last < len(s) {
+		spans = append(spans, ui.Span{Text: s[last:]})
+	}
+	return spans
+}
+
+// variableRanges are the variables of a replacement being edited, for its
+// text area: in the accent's color. Their offsets are in runes.
+func variableRanges(c *ui.Context, s string) []ui.TextRange {
+	vars := engine.Variables(s)
+	if vars == nil {
+		return nil
+	}
+	accent := c.Theme().Accent
+	out := make([]ui.TextRange, len(vars))
+	runes, last := 0, 0
+	for i, v := range vars {
+		runes += utf8.RuneCountInString(s[last:v[0]])
+		start := runes
+		runes += utf8.RuneCountInString(s[v[0]:v[1]])
+		out[i] = ui.TextRange{Start: start, End: runes, Color: accent}
+		last = v[1]
+	}
+	return out
+}
+
+// ago says how long ago t was, as "5 minutes ago", or the day it was
+// once that is more than a week.
+func ago(t, now time.Time) string {
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return plural(int(d/time.Minute), "minute", "minutes") + " ago"
+	case d < 24*time.Hour:
+		return plural(int(d/time.Hour), "hour", "hours") + " ago"
+	case d < 48*time.Hour:
+		return "yesterday"
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%d days ago", int(d/(24*time.Hour)))
+	case t.Year() == now.Year():
+		return t.Local().Format("January 2")
+	}
+	return t.Local().Format("January 2, 2006")
+}
+
+// dot is a small round mark of a state's color.
+func dot(c *ui.Context, color ui.Color) ui.Element {
+	return ui.Box(c).Size(8, 8).Radius(4).Background(color).Shrink(0)
 }
 
 // kbd shows a key of a hint, as ↵ in "↵ Insert".
@@ -174,7 +297,16 @@ func section(c *ui.Context, title string, fn func()) {
 // textPlate shows a text as it will be typed: monospaced, wrapped, on a
 // light plate, selectable.
 func textPlate(c *ui.Context, s string) ui.Element {
+	return plate(c, ui.Text(c, s))
+}
+
+// replacementPlate is a textPlate of a replacement, its variables apart.
+func replacementPlate(c *ui.Context, s string) ui.Element {
+	return plate(c, ui.RichText(c, replacementSpans(c, s)...))
+}
+
+func plate(c *ui.Context, e ui.Element) ui.Element {
 	t := c.Theme()
-	return ui.Text(c, s).Font("monospace").FontSize(12).LineHeight(1.45).Wrap().Selectable().
+	return e.Font("monospace").FontSize(12).LineHeight(1.45).Wrap().Selectable().
 		Padding(10, 12).Radius(8).Background(t.Text.Alpha(0.035)).Border(0.5, t.Border.Alpha(0.7))
 }

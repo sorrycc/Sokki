@@ -38,6 +38,9 @@ type app struct {
 
 	tray   *mygo.Tray
 	secure bool
+	// trusted is whether Sokki has the Accessibility permission, without
+	// which it cannot see what is typed.
+	trusted bool
 
 	settings *settingsWindow
 	editor   *editorWindow
@@ -133,7 +136,7 @@ func (a *app) ready() {
 		SecureInputChanged: func(s bool) { a.post(func() { a.secure = s; a.updateTray() }) },
 		Toggled:            func(on bool) { a.post(func() { a.store.Config.Enabled = on; a.updateTray() }) },
 		HUDRequested:       func() { a.post(a.hud.toggle) },
-		HUDEvent:           func(ev model.HUDEvent) { a.post(func() { a.hud.record(ev) }) },
+		HUDEvent:           func(ev model.HUDEvent) { a.post(func() { a.recordEvent(ev) }) },
 		PaletteRequested:   func() { a.post(a.palette.toggle) },
 	})
 	a.store.OnMatchesChanged = func() {
@@ -156,7 +159,9 @@ func (a *app) ready() {
 	macos.OnAppActivated(func() { a.exp.Ctx.ClearBuffer() })
 	macos.OnAppDeactivated(func() { a.exp.Ctx.CancelPending("app-switch") })
 
-	if !macos.RequestTrust() {
+	a.trusted = macos.RequestTrust()
+	a.updateTray()
+	if !a.trusted {
 		logx.Warnf("Accessibility permission not granted")
 		go a.waitForTrust()
 	}
@@ -264,7 +269,11 @@ func (a *app) waitForTrust() {
 		time.Sleep(2 * time.Second)
 	}
 	logx.Warnf("Accessibility granted — prompting to relaunch")
-	a.post(a.acquire)
+	a.post(func() {
+		a.trusted = true
+		a.updateTray()
+		a.acquire()
+	})
 	res, err := mygo.Dialog.Message(mygo.MessageOptions{
 		Type:    mygo.MessageInfo,
 		Message: "Accessibility granted — restart to start working",
@@ -282,19 +291,47 @@ func (a *app) relaunch() {
 	mygo.App.Relaunch()
 }
 
-// welcome tells a first launch where its configuration is.
+// welcome tells a first launch how to try Sokki and where its matches
+// are.
 func (a *app) welcome() {
 	a.post(a.acquire)
 	res, err := mygo.Dialog.Message(mygo.MessageOptions{
 		Type:    mygo.MessageInfo,
 		Message: "Welcome to Sokki",
-		Detail:  "Config files created at ~/.config/sokki/.\nEdit match/default.yml to add your triggers.",
-		Buttons: []string{"Open Config Folder", "OK"},
+		Detail: "Type :hello in any app to try it.\n\n" +
+			"Your matches are in Settings, under the keyboard icon in the menu bar, " +
+			"and kept as text in ~/.config/sokki.",
+		Buttons: []string{"Open Settings", "OK"},
 	})
 	a.post(a.release)
 	if err == nil && res.Button == 0 {
-		mygo.Shell.OpenPath(string(a.dir))
+		a.post(a.openSettings)
 	}
+}
+
+// recordEvent takes what the expander did with a trigger: Recent Activity
+// shows it, and an expansion counts as a use of its match.
+func (a *app) recordEvent(ev model.HUDEvent) {
+	if ev.Verdict == model.VerdictMatched && ev.MatchedTrigger != "" {
+		a.recency.Bump(ev.MatchedTrigger)
+		a.settings.invalidate()
+	}
+	a.hud.record(ev)
+}
+
+// accessibilitySettings is the pane of System Settings that grants Sokki
+// the Accessibility permission.
+const accessibilitySettings = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+// grantAccess opens System Settings where Sokki gets the Accessibility
+// permission.
+func (a *app) grantAccess() { mygo.Shell.OpenExternal(accessibilitySettings) }
+
+// setEnabled turns expansion on or off, as the Settings switch does.
+func (a *app) setEnabled(on bool) {
+	a.store.Config.Enabled = on
+	a.saveConfig()
+	a.settings.invalidate()
 }
 
 // openSettings shows Settings, on the Matches tab unless told otherwise.

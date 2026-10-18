@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -32,6 +33,16 @@ type editorWindow struct {
 	newFile    string
 	newFileIn  ui.Handle
 	triggerIn  ui.Handle
+	replaceIn  ui.Handle
+
+	title string
+	// selStart and selEnd are the selection of the replacement, in runes,
+	// as of when it last had the focus (selKnown), where a variable is
+	// inserted; caret, when caretSet, is where to put the caret next frame.
+	selStart, selEnd int
+	selKnown         bool
+	caret            int
+	caretSet         bool
 
 	// previewText is the preview of previewOf, the replacement it was
 	// rendered for, kept while the replacement does not change.
@@ -61,16 +72,18 @@ func (e *editorWindow) create(file, trigger string) {
 
 func (e *editorWindow) open(title string) {
 	e.addingFile, e.newFile, e.extra = false, "", nil
+	e.title, e.selKnown, e.caretSet = title, false, false
 	e.previewOf = "\x00" // the clipboard may have changed: render again
 	if e.win == nil {
 		e.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:     title,
-			Width:     560,
-			Height:    520,
-			MinWidth:  460,
-			MinHeight: 420,
-			Hidden:    true,
-			Content:   ui.View(e.view),
+			Title:         title,
+			Width:         560,
+			Height:        540,
+			MinWidth:      460,
+			MinHeight:     440,
+			Hidden:        true,
+			TitleBarStyle: mygo.TitleBarHidden,
+			Content:       ui.View(e.view),
 		})
 		e.a.hideOnClose(e.win, e.close)
 	}
@@ -184,6 +197,23 @@ func (e *editorWindow) commitNewFile() {
 	e.file, e.addingFile, e.newFile = name, false, ""
 }
 
+// insert puts text in the replacement over its selection, or at its end
+// when it has not had the focus, and the caret after it.
+func (e *editorWindow) insert(text string) {
+	r := []rune(e.replace)
+	start, end := len(r), len(r)
+	if e.selKnown {
+		start, end = min(max(0, e.selStart), len(r)), min(max(0, e.selEnd), len(r))
+		if start > end {
+			start, end = end, start
+		}
+	}
+	e.replace = string(r[:start]) + text + string(r[end:])
+	e.caret, e.caretSet = start+utf8.RuneCountInString(text), true
+	e.selStart, e.selEnd, e.selKnown = e.caret, e.caret, true
+	e.replaceIn.Focus()
+}
+
 // variables are what the editor's Insert menu adds to the replacement.
 var variables = []struct{ label, text string }{
 	{"Clipboard", "{{clipboard}}"},
@@ -219,8 +249,9 @@ func (e *editorWindow) view(c *ui.Context) {
 		e.close()
 	}
 	ui.Column(c).Fill().Children(func() {
+		e.header(c)
 		ui.Column(c).Grow(1).Shrink(1).Children(func() {
-			ui.Column(c).Grow(1).Padding(18, 20).Gap(16).Children(func() {
+			ui.Column(c).Grow(1).Padding(16, 20, 18, 20).Gap(16).Children(func() {
 				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
 					labeled(c, "Trigger", func() {
 						if ui.TextInput(c, &e.trigger).Bind(&e.triggerIn).Label("Trigger").Placeholder(":hello").Font("monospace").Submitted() {
@@ -247,12 +278,25 @@ func (e *editorWindow) view(c *ui.Context) {
 						ui.MenuButton(c, "Insert Variable", func(m *ui.Menu) {
 							for _, v := range variables {
 								if m.Item(v.label).Chosen() {
-									e.replace += v.text
+									e.insert(v.text)
 								}
 							}
 						}).Label("Insert Variable")
 					})
-					ui.TextArea(c, &e.replace).Label("Replacement").Placeholder("What the trigger types").Font("monospace").Grow(1).MinHeight(96)
+					ta := ui.TextArea(c, &e.replace).Bind(&e.replaceIn).Label("Replacement").
+						Placeholder("What the trigger types").
+						Font("monospace").Grow(1).MinHeight(96).TextRanges(variableRanges(c, e.replace)...)
+					if e.caretSet {
+						ta.SetTextSelection(e.caret, e.caret)
+						e.caretSet = false
+					}
+					if ta.Focused() {
+						e.selStart, e.selEnd = ta.TextSelection()
+						e.selKnown = true
+					}
+					if e.replace != "" {
+						caption(c, summary(e.replace)).FontFeatures("tnum").AlignSelf(ui.End)
+					}
 				})
 				if strings.Contains(e.replace, "{{") {
 					e.preview(c)
@@ -280,11 +324,31 @@ func (e *editorWindow) view(c *ui.Context) {
 			})
 		})
 		ui.Divider(c)
-		ui.Row(c).Padding(12, 20).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Padding(12, 20).Gap(8).AlignItems(ui.Center).Background(t.Text.Alpha(0.02)).Children(func() {
 			hint(c, "⌘↵", "to save")
 			ui.Spacer(c)
 			ui.Button(c, "Cancel").OnClick(e.close)
-			ui.PrimaryButton(c, "Save").Disabled(!e.canSave()).OnClick(e.save)
+			ui.PrimaryButton(c, "Save").Disabled(!e.canSave()).Tooltip("Save (⌘↵)").OnClick(e.save)
+		})
+	})
+}
+
+// header is the editor's title bar: what it does, under the window's
+// controls, dragging the window.
+func (e *editorWindow) header(c *ui.Context) {
+	t := c.Theme()
+	bar := c.TitleBar()
+	ui.Row(c).Height(max(bar.Height, 12)+44).Padding(max(bar.Height, 12), 20, 0, 20).Gap(10).AlignItems(ui.Center).DragWindow().Children(func() {
+		ui.Box(c).Size(30, 30).Radius(8).Background(t.Accent.Alpha(0.12)).Center().Shrink(0).Children(func() {
+			icon := iconPlus
+			if e.existing != 0 {
+				icon = iconPencil
+			}
+			ui.Icon(c, icon).FontSize(15).TextColor(t.Accent)
+		})
+		ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
+			ui.Text(c, e.title).FontSize(15).Bold().SingleLine()
+			caption(c, "Saved to "+e.file).SingleLine().Ellipsis("…")
 		})
 	})
 }

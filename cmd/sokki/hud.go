@@ -23,15 +23,32 @@ type hudPanel struct {
 	win      *mygo.Window
 	events   []model.HUDEvent // newest first
 	revealed map[int64]bool
-	list     ui.ListState
+	// titles are the titles of the matches events expanded, by event, as
+	// of when they did.
+	titles map[int64]string
+	list   ui.ListState
 }
 
-func newHUDPanel(a *app) *hudPanel { return &hudPanel{a: a, revealed: map[int64]bool{}} }
+func newHUDPanel(a *app) *hudPanel {
+	return &hudPanel{a: a, revealed: map[int64]bool{}, titles: map[int64]string{}}
+}
 
 func (h *hudPanel) record(ev model.HUDEvent) {
 	h.events = append([]model.HUDEvent{ev}, h.events...)
 	if len(h.events) > hudCapacity {
+		for _, old := range h.events[hudCapacity:] {
+			delete(h.titles, old.ID)
+			delete(h.revealed, old.ID)
+		}
 		h.events = h.events[:hudCapacity]
+	}
+	if ev.Verdict == model.VerdictMatched && ev.MatchedTrigger != "" {
+		for _, m := range h.a.store.Matches {
+			if m.Trigger == ev.MatchedTrigger {
+				h.titles[ev.ID] = matchTitle(m)
+				break
+			}
+		}
 	}
 	if h.win != nil && h.win.IsVisible() {
 		h.win.Invalidate()
@@ -41,14 +58,15 @@ func (h *hudPanel) record(ev model.HUDEvent) {
 func (h *hudPanel) toggle() {
 	if h.win == nil {
 		h.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:     "Sokki Recent Activity",
-			Panel:     true,
-			Hidden:    true,
-			Width:     380,
-			Height:    460,
-			MinWidth:  320,
-			MinHeight: 240,
-			Content:   ui.View(h.view),
+			Title:         "Sokki Recent Activity",
+			Panel:         true,
+			Hidden:        true,
+			Width:         380,
+			Height:        460,
+			MinWidth:      320,
+			MinHeight:     240,
+			TitleBarStyle: mygo.TitleBarHidden,
+			Content:       ui.View(h.view),
 		})
 		h.a.hideOnClose(h.win, h.win.Hide)
 		h.win.Center()
@@ -70,12 +88,13 @@ func copyText(s string) { macos.SetPasteboardString(s) }
 func (h *hudPanel) view(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Fill().Children(func() {
-		ui.Row(c).Padding(10, 10, 10, 14).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, iconHistory).FontSize(15).TextColor(t.TextMuted)
-			ui.Text(c, "Recent Activity").FontWeight(600).Grow(1)
+		bar := c.TitleBar()
+		ui.Row(c).Height(max(bar.Height, 36)).Padding(0, 10, 0, max(bar.Left, 14)).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
+			ui.Icon(c, iconHistory).FontSize(14).TextColor(t.TextMuted)
+			ui.Text(c, "Recent Activity").FontWeight(600).Grow(1).SingleLine()
 			if len(h.events) > 0 {
 				iconButton(c, iconTrash, "Clear").OnClick(func() {
-					h.events, h.revealed = nil, map[int64]bool{}
+					h.events, h.revealed, h.titles = nil, map[int64]bool{}, map[int64]string{}
 				})
 			}
 		})
@@ -133,7 +152,11 @@ func (h *hudPanel) row(c *ui.Context, i int) {
 					if !compact(ev.Verdict) {
 						caption(c, "Would have expanded")
 					}
-					keycap(c, ev.MatchedTrigger, false).Shrink(1).Ellipsis("…")
+					keycap(c, ev.MatchedTrigger, false).Shrink(0).MaxWidth(140).Ellipsis("…")
+					if title := h.titles[ev.ID]; title != "" && compact(ev.Verdict) {
+						caption(c, "→").Shrink(0)
+						caption(c, title).SingleLine().Ellipsis("…").Shrink(1)
+					}
 				})
 			}
 			if ev.Note != "" {
