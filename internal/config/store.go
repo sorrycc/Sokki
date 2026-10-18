@@ -27,6 +27,12 @@ type Store struct {
 	// Gen counts the changes of the matches, for views that keep what
 	// they derive from them.
 	Gen uint64
+
+	// The files and counts of the matches as of the generation derivedGen,
+	// which views ask for every frame.
+	derivedGen  uint64
+	sourceFiles []string
+	fileCounts  map[string]int
 }
 
 // NewStore makes a store of d, empty until Load.
@@ -64,29 +70,37 @@ func (s *Store) changed() {
 	}
 }
 
-// SourceFiles are the match files a match can go to.
+// SourceFiles are the match files a match can go to, sorted. The slice
+// is shared: don't change it.
 func (s *Store) SourceFiles() []string {
-	files := append(slices.Clone(s.files), DefaultMatchFile)
-	for _, m := range s.Matches {
-		if m.SourceFile != "" {
-			files = append(files, m.SourceFile)
-		}
-	}
-	slices.Sort(files)
-	return slices.Compact(files)
+	s.derive()
+	return s.sourceFiles
 }
 
-// FileCounts returns how many matches each match file has.
+// FileCounts returns how many matches each match file has. The map is
+// shared: don't change it.
 func (s *Store) FileCounts() map[string]int {
+	s.derive()
+	return s.fileCounts
+}
+
+func (s *Store) derive() {
+	if s.fileCounts != nil && s.derivedGen == s.Gen {
+		return
+	}
+	files := append(slices.Clone(s.files), DefaultMatchFile)
 	counts := make(map[string]int, len(s.files)+1)
 	for _, m := range s.Matches {
 		f := m.SourceFile
 		if f == "" {
 			f = DefaultMatchFile
+		} else {
+			files = append(files, f)
 		}
 		counts[f]++
 	}
-	return counts
+	slices.Sort(files)
+	s.sourceFiles, s.fileCounts, s.derivedGen = slices.Compact(files), counts, s.Gen
 }
 
 // Match returns the match with id.

@@ -63,7 +63,11 @@ func TestStoreSaves(t *testing.T) {
 	changes := 0
 	s.OnMatchesChanged = func() { changes++ }
 	s.Load()
+	before := s.FileCounts()[DefaultMatchFile]
 	s.Add(model.Match{Trigger: ":new", Replace: "line 1\nline 2", Enabled: true, SourceFile: "work.yml"})
+	if counts := s.FileCounts(); counts["work.yml"] != 1 || counts[DefaultMatchFile] != before {
+		t.Fatalf("counts not derived again after an add: %v", counts)
+	}
 	first := s.Matches[0]
 	first.Enabled = false
 	s.Update(first)

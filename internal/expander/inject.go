@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"sokki/internal/macos"
 	"sokki/internal/model"
@@ -26,7 +27,7 @@ func (in *Injector) Inject(replacement string, triggerLength int) {
 	defer in.mu.Unlock()
 	cfg := in.cfg()
 	in.erase(triggerLength, cfg)
-	if len([]rune(replacement)) <= cfg.ClipboardThreshold {
+	if utf8.RuneCountInString(replacement) <= cfg.ClipboardThreshold {
 		for _, r := range replacement {
 			macos.PostText(string(r))
 			if cfg.InjectDelay > 0 {

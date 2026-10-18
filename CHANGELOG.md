@@ -16,6 +16,10 @@ The update window shows the section of the version it offers: every release need
 - **The menu bar menu** says whether Sokki is on, pauses and resumes it, opens the palette, a new match and Recent Activity, and keeps reloading, the log and restarting under Troubleshooting.
 - Typing is lighter on the system: Sokki writes its log from a background thread with the file kept open, instead of opening it for every key typed.
 - The matches search also looks in labels.
+- **Matches in Settings** show the chosen match whole beside the list: its replacement, a preview of its variables, whether it is typed or pasted, a switch to turn it off, and buttons to edit, copy and delete it.
+- The palette's preview shows the match's title, trigger and file, and the editor's replacement field grows with its window.
+- The delays and the paste threshold in General show their units.
+- Typing is lighter still: each key typed costs the event tap about half the time it did, with no allocations but its log line, and replacements are typed without making a new event source for every character.
 
 ## 0.1.1
 

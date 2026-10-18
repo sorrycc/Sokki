@@ -321,8 +321,18 @@ func FuzzyScore(query, target string) (int, bool) {
 	if query == "" {
 		return 0, true
 	}
-	q := []rune(strings.ToLower(query))
-	t := []rune(strings.ToLower(target))
+	return FuzzyScoreFolded(Fold(query), Fold(target))
+}
+
+// Fold returns s in lower case as runes, for FuzzyScoreFolded: a list
+// searched again and again folds its texts once.
+func Fold(s string) []rune { return []rune(strings.ToLower(s)) }
+
+// FuzzyScoreFolded is FuzzyScore of a query and a target folded by Fold.
+func FuzzyScoreFolded(q, t []rune) (int, bool) {
+	if len(q) == 0 {
+		return 0, true
+	}
 	qi, score, run, first := 0, 0, 0, -1
 	for ti := 0; qi < len(q) && ti < len(t); ti++ {
 		if q[qi] == t[ti] {

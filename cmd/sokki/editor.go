@@ -66,9 +66,9 @@ func (e *editorWindow) open(title string) {
 		e.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:     title,
 			Width:     560,
-			Height:    560,
+			Height:    520,
 			MinWidth:  460,
-			MinHeight: 440,
+			MinHeight: 420,
 			Hidden:    true,
 			Content:   ui.View(e.view),
 		})
@@ -219,8 +219,8 @@ func (e *editorWindow) view(c *ui.Context) {
 		e.close()
 	}
 	ui.Column(c).Fill().Children(func() {
-		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Padding(18, 20).Gap(16).Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).Children(func() {
+			ui.Column(c).Grow(1).Padding(18, 20).Gap(16).Children(func() {
 				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
 					labeled(c, "Trigger", func() {
 						if ui.TextInput(c, &e.trigger).Bind(&e.triggerIn).Label("Trigger").Placeholder(":hello").Font("monospace").Submitted() {
@@ -240,7 +240,7 @@ func (e *editorWindow) view(c *ui.Context) {
 					caption(c, "Type the trigger anywhere and Sokki replaces it.").Margin(-8, 0, 0, 0)
 				}
 
-				ui.Column(c).Gap(6).Children(func() {
+				ui.Column(c).Gap(6).Grow(1).Shrink(1).Children(func() {
 					ui.Row(c).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, "Replacement").FontSize(12).FontWeight(600)
 						ui.Spacer(c)
@@ -252,7 +252,7 @@ func (e *editorWindow) view(c *ui.Context) {
 							}
 						}).Label("Insert Variable")
 					})
-					ui.TextArea(c, &e.replace).Label("Replacement").Font("monospace").MinHeight(140)
+					ui.TextArea(c, &e.replace).Label("Replacement").Placeholder("What the trigger types").Font("monospace").Grow(1).MinHeight(96)
 				})
 				if strings.Contains(e.replace, "{{") {
 					e.preview(c)
@@ -298,8 +298,7 @@ func (e *editorWindow) preview(c *ui.Context) {
 	}
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Text(c, "Preview").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-		ui.Text(c, e.previewText).Font("monospace").FontSize(12).Wrap().Selectable().MaxLines(8).Ellipsis("…").
-			Padding(10, 12).Radius(8).Background(t.Text.Alpha(0.04)).Border(0.5, t.Border)
+		textPlate(c, e.previewText).MaxLines(6).Ellipsis("…")
 	})
 }
 

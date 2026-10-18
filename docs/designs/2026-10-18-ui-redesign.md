@@ -31,6 +31,19 @@ match file in the warning color. The list derives its rows once per change
 of the store (`Store.Gen`), the file or the query, not every frame, and
 searches labels too.
 
+### List and detail (second pass)
+
+The rows left most of a wide window empty, and a replacement could only
+be read whole in the editor. The page is now a split (`ui.Split`, the
+list 280 wide to start, the user's to drag): rows of the title (the label,
+or the replacement's first line) over a line under it, the trigger's
+keycap at the end, as the palette's; beside them the chosen match whole:
+its title, trigger and file, an Enabled switch, the replacement and, when
+it has variables, a preview of them filled in, its length and whether it
+is typed or pasted (`clipboard_threshold`), and Edit, Copy and Delete.
+The preview is rendered when the choice or its replacement changes, not
+every frame: it reads the clipboard.
+
 ## Palette, editor, Recent Activity
 
 - **Palette**: a search icon and a larger field, rows of label and keycap,
@@ -38,9 +51,15 @@ searches labels too.
   takes. Escape clears the query before closing; ⌘N opens the editor with
   the query as trigger. The preview is rendered when the choice changes,
   not every frame.
+- **Palette, second pass**: the preview has the match's title, trigger
+  and file over the text, on the same plate as Settings' detail
+  (`textPlate`); No Results fills the whole body.
 - **Editor**: trigger and label side by side, an Insert Variable menu, a
   preview when the replacement has variables, a warning when another match
   has the trigger, the file and Enabled at the bottom, Save in a footer.
+  The replacement grows with the window instead of leaving room empty
+  under the form.
+- **General**: the number fields show their unit (ms, chars) after them.
 - **Recent Activity**: a header with a Clear button, each event an icon in
   its verdict's color with a sentence ("Expanded", "Too soon after a
   paste", "Sokki is paused").
@@ -61,3 +80,20 @@ queues lines to a goroutine of its own that keeps the file open, counts
 its size to rotate it, and reopens it once a second at most if it was
 moved. A full queue drops lines (counted in the next line) rather than
 block the tap. `logx.Flush` writes what is queued, on quit.
+
+### Second pass
+
+A key typed cost 530 ns and 14 allocations on the tap's thread
+(`BenchmarkFeed`, 500 triggers): the matcher made a new cursor slice and
+a result for every key, and its trace line was formatted three times
+over (`fmt.Sprintf` of the summary, of the line, of the time). The
+matcher now swaps two cursor slices, and the per-key trace line is built
+by hand into a stack buffer (`Context.traceFeed`, `logx.Trace`): 240 ns
+and one allocation, the line itself. The log's format is unchanged.
+
+The injector made and freed a CGEventSource for each character typed;
+it now keeps one. The palette folded every match's trigger, label and
+replacement to lower-case runes for every key typed in its search; it
+folds them once per change of the store (`engine.Fold`,
+`FuzzyScoreFolded`). The store's file list and counts, which Settings'
+sidebar asks for every frame, are derived once per generation.

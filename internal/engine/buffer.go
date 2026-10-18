@@ -1,6 +1,9 @@
 package engine
 
-import "time"
+import (
+	"time"
+	"unicode/utf8"
+)
 
 // Buffer is a ring of the last characters typed.
 type Buffer struct {
@@ -44,6 +47,18 @@ func (b *Buffer) Tail(n int) string {
 		out[i] = b.buf[(start+i)%len(b.buf)]
 	}
 	return string(out)
+}
+
+// appendTail appends the last n characters, as Tail returns them.
+func (b *Buffer) appendTail(dst []byte, n int) []byte {
+	if n <= 0 || n > b.count {
+		return dst
+	}
+	start := (b.head + b.count - n) % len(b.buf)
+	for i := range n {
+		dst = utf8.AppendRune(dst, b.buf[(start+i)%len(b.buf)])
+	}
+	return dst
 }
 
 // Len returns how many characters the buffer holds.

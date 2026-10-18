@@ -214,14 +214,16 @@ func choose(c *ui.Context, value *string, options []option) bool {
 	return false
 }
 
-// number edits an int setting.
-func number(c *ui.Context, v *int, lo, hi float64) bool {
+// number edits an int setting, in unit, which shows after it.
+func number(c *ui.Context, v *int, lo, hi float64, unit string) bool {
 	f := float64(*v)
+	changed := false
 	if ui.NumberInput(c, &f, lo, hi, 1).Changed() {
 		*v = int(f)
-		return true
+		changed = true
 	}
-	return false
+	caption(c, unit).Width(36).SingleLine()
+	return changed
 }
 
 var toggleOptions = []option{
@@ -267,22 +269,22 @@ func (s *settingsWindow) general(c *ui.Context) {
 			})
 		})
 		group(c, "Typing", func() {
-			setting(c, "Key delay", "Milliseconds between typed keys. Raise it for apps that drop keys.", true, func() {
-				changed = number(c, &cfg.InjectDelay, 0, 1000) || changed
+			setting(c, "Key delay", "The pause between typed keys. Raise it for apps that drop keys.", true, func() {
+				changed = number(c, &cfg.InjectDelay, 0, 1000, "ms") || changed
 			})
-			setting(c, "Overlap delay", "When a trigger is the start of a longer one, wait this many milliseconds for the longer one.", false, func() {
-				changed = number(c, &cfg.ConflictResolveDelayMs, 50, 5000) || changed
+			setting(c, "Overlap delay", "When a trigger starts a longer one, how long to wait for the rest.", false, func() {
+				changed = number(c, &cfg.ConflictResolveDelayMs, 50, 5000, "ms") || changed
 			})
 		})
 		group(c, "Clipboard", func() {
-			setting(c, "Paste longer than", "Replacements longer than this many characters are pasted instead of typed.", true, func() {
-				changed = number(c, &cfg.ClipboardThreshold, 0, 100000) || changed
+			setting(c, "Paste longer than", "Longer replacements are pasted instead of typed, which is faster.", true, func() {
+				changed = number(c, &cfg.ClipboardThreshold, 0, 100000, "chars") || changed
 			})
 			setting(c, "Restore clipboard", "Put back what was on the clipboard after pasting.", false, func() {
 				changed = ui.Switch(c, &cfg.PreserveClipboard).Label("Restore clipboard").Changed() || changed
 			})
-			setting(c, "Restore after", "Milliseconds to wait before restoring the clipboard.", false, func() {
-				changed = number(c, &cfg.RestoreClipboardDelay, 0, 10000) || changed
+			setting(c, "Restore after", "How long to wait before putting the clipboard back.", false, func() {
+				changed = number(c, &cfg.RestoreClipboardDelay, 0, 10000, "ms") || changed
 			})
 		})
 		group(c, "Troubleshooting", func() {
@@ -409,7 +411,9 @@ func (s *settingsWindow) about(c *ui.Context) {
 				ui.Image(c, icon).Size(112, 112).Margin(0, 0, 8, 0)
 			}
 			ui.Text(c, "Sokki").FontSize(26).Bold()
-			muted(c, "Version "+mygo.App.Version()).Selectable()
+			if v := mygo.App.Version(); v != "" {
+				muted(c, "Version "+v).Selectable()
+			}
 			caption(c, "Type a trigger anywhere, and Sokki types the rest.").Margin(4, 0, 0, 0)
 			ui.Row(c).Gap(8).Margin(18, 0, 0, 0).Children(func() {
 				if mygo.Updater.Enabled() && ui.PrimaryButton(c, "Check for Updates…").Clicked() {

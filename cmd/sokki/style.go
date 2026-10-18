@@ -162,3 +162,19 @@ func muted(c *ui.Context, s string) ui.Element {
 func caption(c *ui.Context, s string) ui.Element {
 	return ui.Text(c, s).FontSize(11).TextColor(c.Theme().TextMuted)
 }
+
+// section is a part of a pane under a small title.
+func section(c *ui.Context, title string, fn func()) {
+	ui.Column(c).Gap(6).Children(func() {
+		ui.Text(c, title).FontSize(11).FontWeight(600).TextColor(c.Theme().TextMuted)
+		fn()
+	})
+}
+
+// textPlate shows a text as it will be typed: monospaced, wrapped, on a
+// light plate, selectable.
+func textPlate(c *ui.Context, s string) ui.Element {
+	t := c.Theme()
+	return ui.Text(c, s).Font("monospace").FontSize(12).LineHeight(1.45).Wrap().Selectable().
+		Padding(10, 12).Radius(8).Background(t.Text.Alpha(0.035)).Border(0.5, t.Border.Alpha(0.7))
+}

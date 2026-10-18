@@ -101,6 +101,10 @@ func Debugf(format string, args ...any) {
 // never carry what was typed in a secure (password) field.
 func Tracef(format string, args ...any) { write("TRACE", format, args...) }
 
+// Trace logs a trace line made already, as Tracef does without formatting
+// it: the event tap's per-key lines.
+func Trace(msg []byte) { enqueue(line("TRACE", msg)) }
+
 // Flush waits until the lines logged so far are in the file, as before
 // quitting. It gives up after a second.
 func Flush() {
@@ -117,7 +121,23 @@ func Flush() {
 }
 
 func write(label, format string, args ...any) {
-	line := fmt.Sprintf("[%s] [%s] %s\n", time.Now().UTC().Format("2006-01-02T15:04:05Z"), label, fmt.Sprintf(format, args...))
+	var buf [256]byte
+	enqueue(line(label, fmt.Appendf(buf[:0], format, args...)))
+}
+
+// line makes a line of the log: [time] [label] msg.
+func line(label string, msg []byte) string {
+	var buf [320]byte
+	b := append(buf[:0], '[')
+	b = time.Now().UTC().AppendFormat(b, "2006-01-02T15:04:05Z")
+	b = append(b, "] ["...)
+	b = append(b, label...)
+	b = append(b, "] "...)
+	b = append(b, msg...)
+	return string(append(b, '\n'))
+}
+
+func enqueue(line string) {
 	select {
 	case lines <- request{line: line}:
 	default:

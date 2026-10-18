@@ -196,7 +196,7 @@ func TestEditorSavesNewMatch(t *testing.T) {
 	a := testApp(t)
 	e := a.editor
 	e.existing, e.trigger, e.file, e.enabled = 0, ":", config.DefaultMatchFile, true
-	tt := ui.NewTester(e.view, 560, 560)
+	tt := ui.NewTester(e.view, 560, 520)
 	if !tt.HasText("Trigger") || !tt.HasText("Replacement") {
 		t.Fatalf("editor: %q", tt.Texts())
 	}
@@ -264,6 +264,42 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	tt.Key(0, ui.KeyEscape)
 	if p.query != "" || len(p.results) != 4 {
 		t.Fatalf("escape did not clear: %q", p.query)
+	}
+
+	// An edit of the matches is searched at once.
+	m := a.store.Matches[0]
+	m.Label = "Greeting"
+	a.store.Update(m)
+	p.query = "greet"
+	p.filter()
+	if len(p.results) != 1 || p.results[0].Trigger != ":hello" {
+		t.Fatalf("edited label not searched: %+v", p.results)
+	}
+}
+
+func TestMatchesDetail(t *testing.T) {
+	a := testApp(t)
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	for _, want := range []string{"Replacement", "Typed key by key", "Edit…"} {
+		if !tt.HasText(want) {
+			t.Fatalf("detail lacks %q: %q", want, tt.Texts())
+		}
+	}
+	// The chosen match's switch turns it off.
+	if err := tt.Click("Enabled"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if m := a.store.Matches[0]; m.Enabled {
+		t.Fatalf("not turned off: %+v", m)
+	}
+	// A match with variables shows them filled in.
+	if err := tt.Click("{{date:yyyy-MM-dd}}"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Preview") {
+		t.Fatalf("no preview for :today: %q", tt.Texts())
 	}
 }
 

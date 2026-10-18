@@ -3,10 +3,14 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/config"
+	"sokki/internal/engine"
+	"sokki/internal/macos"
 	"sokki/internal/model"
 )
 
@@ -17,8 +21,16 @@ type matchList struct {
 	file   string // "" is every file
 	query  string
 	chosen int
-	list   ui.ListState
 	search ui.Handle
+
+	listState ui.ListState
+	listWidth float32 // of the list, beside the detail
+
+	// previewText is the preview of the match previewID, whose replacement
+	// was previewOf, kept while the choice stays.
+	previewID   int64
+	previewOf   string
+	previewText string
 
 	shown []model.Match
 	// key is what shown was filtered for: the store's generation, the
@@ -89,7 +101,7 @@ func (l *matchList) move(delta int) {
 	} else {
 		l.chosen = max(0, min(len(l.shown)-1, l.chosen+delta))
 	}
-	l.list.ScrollIntoView(l.chosen)
+	l.listState.ScrollIntoView(l.chosen)
 }
 
 func (l *matchList) prefill() string {
@@ -128,14 +140,14 @@ func (l *matchList) view(c *ui.Context) {
 				title, total = l.file, l.a.store.FileCounts()[l.file]
 			}
 			ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
-				ui.Text(c, title).FontSize(17).Bold().SingleLine()
+				ui.Text(c, title).FontSize(17).Bold().SingleLine().Ellipsis("…")
 				sub := plural(total, "match", "matches")
 				if q := strings.TrimSpace(l.query); q != "" {
 					sub = fmt.Sprintf("%d of %s", len(l.shown), sub)
 				}
-				caption(c, sub)
+				caption(c, sub).FontFeatures("tnum")
 			})
-			search := ui.SearchField(c, &l.query).Bind(&l.search).Label("Search").Placeholder("Search").Width(220)
+			search := ui.SearchField(c, &l.query).Bind(&l.search).Label("Search").Placeholder("Search").Width(200)
 			if search.Changed() {
 				l.filter()
 			}
@@ -159,24 +171,16 @@ func (l *matchList) view(c *ui.Context) {
 		})
 		ui.Divider(c)
 
-		l.list.Selected = &l.chosen
-		l.list.Key = func(i int) any { return l.shown[i].ID }
-		l.list.Label = func(i int) string { return l.shown[i].Trigger }
-		list := ui.List(c, &l.list, len(l.shown), func(i int) { l.row(c, i) }).Grow(1).Padding(6, 8).Gap(2).Children(func() {
-			if len(l.shown) == 0 {
+		if len(l.shown) == 0 {
+			ui.Column(c).Grow(1).Children(func() {
 				title, detail := l.emptyText()
 				emptyState(c, iconMatches, title, detail)
+			})
+		} else {
+			if l.listWidth == 0 {
+				l.listWidth = 280
 			}
-		})
-		if list.Submitted() {
-			if m, ok := l.selected(); ok {
-				l.edit(m)
-			}
-		}
-		if list.Focused() && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
-			if m, ok := l.selected(); ok {
-				l.requestDelete(m)
-			}
+			ui.Split(c, &l.listWidth, func() { l.list(c) }, func() { l.detail(c) }).Grow(1)
 		}
 
 		if err := l.a.store.LastError; err != "" {
@@ -189,8 +193,9 @@ func (l *matchList) view(c *ui.Context) {
 			ui.Row(c).Padding(7, 16).Gap(16).AlignItems(ui.Center).Children(func() {
 				hint(c, "↵", "to edit")
 				hint(c, "⌫", "to delete")
+				hint(c, "⌘F", "to search")
 				ui.Spacer(c)
-				caption(c, "Right-click a match for more").SingleLine()
+				hint(c, "⌘N", "for a new match")
 			})
 		}
 	})
@@ -200,6 +205,24 @@ func (l *matchList) view(c *ui.Context) {
 		"Delete", "Cancel") == 0 {
 		if _, ok := l.a.store.Match(l.toDelete.ID); ok {
 			l.a.store.Remove(l.toDelete.ID)
+		}
+	}
+}
+
+// list is the column of matches, one row each.
+func (l *matchList) list(c *ui.Context) {
+	l.listState.Selected = &l.chosen
+	l.listState.Key = func(i int) any { return l.shown[i].ID }
+	l.listState.Label = func(i int) string { return l.shown[i].Title() }
+	list := ui.List(c, &l.listState, len(l.shown), func(i int) { l.row(c, i) }).Fill().Padding(6, 8).Gap(1)
+	if list.Submitted() {
+		if m, ok := l.selected(); ok {
+			l.edit(m)
+		}
+	}
+	if list.Focused() && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
+		if m, ok := l.selected(); ok {
+			l.requestDelete(m)
 		}
 	}
 }
@@ -236,34 +259,26 @@ func (l *matchList) row(c *ui.Context, i int) {
 	if chosen {
 		text, mutedColor = t.AccentText, t.AccentText.Alpha(0.78)
 	}
-	row := ui.Row(c).Padding(7, 10).Gap(12).AlignItems(ui.Center).Radius(7)
+	row := ui.Row(c).Padding(7, 10).Gap(10).AlignItems(ui.Center).Radius(7).MinHeight(46)
 	switch {
 	case chosen:
 		row.Background(t.Accent)
 	case row.Hovered():
 		row.Background(t.Text.Alpha(0.045))
 	}
-	if !m.Enabled {
-		row.Opacity(0.55)
-	}
 	row.Children(func() {
-		ui.Box(c).Width(120).Shrink(0).Children(func() {
-			keycap(c, m.Trigger, chosen).AlignSelf(ui.Start).Shrink(1)
-		})
-		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-			if m.Label != "" {
-				ui.Text(c, m.Label).FontWeight(500).TextColor(text).SingleLine().Ellipsis("…")
-				ui.Text(c, firstLine(m.Replace)).FontSize(11).TextColor(mutedColor).SingleLine().Ellipsis("…")
-			} else {
-				ui.Text(c, firstLine(m.Replace)).TextColor(text).SingleLine().Ellipsis("…")
+		ui.Column(c).Grow(1).Shrink(1).Gap(2).Opacity(enabledOpacity(m)).Children(func() {
+			ui.Text(c, matchTitle(m)).FontWeight(500).TextColor(text).SingleLine().Ellipsis("…")
+			sub := firstLine(m.Replace)
+			if m.Label == "" {
+				sub = summary(m.Replace)
 			}
+			ui.Text(c, sub).FontSize(11).TextColor(mutedColor).SingleLine().Ellipsis("…")
 		})
 		if !m.Enabled {
 			ui.Text(c, "Off").FontSize(10).FontWeight(600).TextColor(mutedColor).Padding(1, 6).Radius(4).Border(0.5, mutedColor)
 		}
-		if l.file == "" && m.SourceFile != "" {
-			ui.Text(c, m.SourceFile).FontSize(11).TextColor(mutedColor).SingleLine().Ellipsis("…").MaxWidth(130)
-		}
+		keycap(c, m.Trigger, chosen).Shrink(0).MaxWidth(120).Ellipsis("…").Opacity(enabledOpacity(m))
 	})
 	row.ContextMenu(func(menu *ui.Menu) {
 		if menu.Item("Edit…").Chosen() {
@@ -284,4 +299,107 @@ func (l *matchList) row(c *ui.Context, i int) {
 			l.requestDelete(m)
 		}
 	})
+}
+
+// matchTitle is what a match is called in lists: its label, or the first
+// line of its replacement.
+func matchTitle(m model.Match) string {
+	if m.Label != "" {
+		return m.Label
+	}
+	if s := strings.TrimSpace(firstLine(m.Replace)); s != "" {
+		return s
+	}
+	return m.Trigger
+}
+
+func enabledOpacity(m model.Match) float32 {
+	if m.Enabled {
+		return 1
+	}
+	return 0.55
+}
+
+// summary describes a replacement under a match without a label, whose
+// first line is its title already: how long it is.
+func summary(s string) string {
+	lines := strings.Count(s, "\n") + 1
+	n := utf8.RuneCountInString(s)
+	if lines > 1 {
+		return plural(lines, "line", "lines") + " · " + plural(n, "character", "characters")
+	}
+	return plural(n, "character", "characters")
+}
+
+// detail shows the chosen match whole: its title, trigger and file, its
+// replacement, a preview of its variables, and what can be done with it.
+func (l *matchList) detail(c *ui.Context) {
+	t := c.Theme()
+	m, ok := l.selected()
+	if !ok {
+		emptyState(c, iconMatches, "No Match Chosen", "Choose a match to see it whole.")
+		return
+	}
+	ui.Column(c).Fill().Children(func() {
+		ui.Scroll(c).Grow(1).Children(func() {
+			ui.Column(c).Padding(18, 22).Gap(18).Children(func() {
+				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
+					ui.Column(c).Grow(1).Shrink(1).Gap(8).Children(func() {
+						ui.Text(c, matchTitle(m)).FontSize(16).Bold().Wrap().MaxLines(2).Ellipsis("…")
+						ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+							keycap(c, m.Trigger, false).Shrink(1).Ellipsis("…")
+							if m.SourceFile != "" {
+								ui.Icon(c, iconFile).FontSize(12).TextColor(t.TextMuted)
+								caption(c, m.SourceFile).SingleLine().Ellipsis("…").Shrink(1)
+							}
+						})
+					})
+					on := m.Enabled
+					if ui.Switch(c, &on).Label("Enabled").Tooltip("Turn this match on or off").Changed() {
+						l.toggle(m)
+					}
+				})
+				section(c, "Replacement", func() {
+					textPlate(c, m.Replace)
+				})
+				if strings.Contains(m.Replace, "{{") {
+					section(c, "Preview", func() {
+						textPlate(c, l.preview(m))
+					})
+				}
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					caption(c, summary(m.Replace)).FontFeatures("tnum")
+					caption(c, "·")
+					caption(c, l.delivery(m)).SingleLine().Ellipsis("…").Shrink(1)
+				})
+			})
+		})
+		ui.Divider(c).Background(t.Border.Alpha(0.6))
+		ui.Row(c).Padding(10, 16).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Button(c, "Edit…").Label("Edit match").OnClick(func() { l.edit(m) })
+			ui.Button(c, "Copy").Label("Copy replacement").OnClick(func() { copyText(m.Replace) })
+			ui.Spacer(c)
+			iconButton(c, iconTrash, "Delete match").OnClick(func() { l.requestDelete(m) })
+		})
+	})
+}
+
+// delivery says how a match's replacement reaches the app: typed, or
+// pasted when it is longer than the clipboard threshold.
+func (l *matchList) delivery(m model.Match) string {
+	if utf8.RuneCountInString(m.Replace) > l.a.store.Config.ClipboardThreshold {
+		return "Pasted through the clipboard"
+	}
+	return "Typed key by key"
+}
+
+// preview renders m's variables, again only when the match or its
+// replacement changed: it reads the clipboard.
+func (l *matchList) preview(m model.Match) string {
+	if l.previewID != m.ID || l.previewOf != m.Replace {
+		clip, _ := macos.PasteboardString()
+		l.previewID, l.previewOf = m.ID, m.Replace
+		l.previewText = engine.RenderPreview(m.Replace, clip, time.Now())
+	}
+	return l.previewText
 }

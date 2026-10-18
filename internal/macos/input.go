@@ -3,6 +3,7 @@
 package macos
 
 import (
+	"sync"
 	"unicode/utf16"
 	"unsafe"
 )
@@ -12,22 +13,22 @@ const (
 	tapHID               = 0 // kCGHIDEventTap
 )
 
+// eventSource is the source of the events Sokki posts, made once: a
+// replacement typed a character at a time made and freed one for each.
+var eventSource = sync.OnceValue(func() uintptr { return cgEventSourceCreate(sourceHIDSystemState) })
+
 // PostKey posts a press or a release of the key with code, with flags.
 func PostKey(code uint16, down bool, flags Flags) {
 	if load() != nil {
 		return
 	}
-	src := cgEventSourceCreate(sourceHIDSystemState)
-	ev := cgEventCreateKeyboardEvent(src, code, down)
+	ev := cgEventCreateKeyboardEvent(eventSource(), code, down)
 	if ev != 0 {
 		if flags != 0 {
 			cgEventSetFlags(ev, uint64(flags))
 		}
 		cgEventPost(tapHID, ev)
 		cfRelease(ev)
-	}
-	if src != 0 {
-		cfRelease(src)
 	}
 }
 
@@ -44,8 +45,12 @@ func PostText(s string) {
 	if s == "" || load() != nil {
 		return
 	}
-	units := utf16.Encode([]rune(s))
-	src := cgEventSourceCreate(sourceHIDSystemState)
+	var small [8]uint16
+	units := small[:0]
+	for _, r := range s {
+		units = utf16.AppendRune(units, r)
+	}
+	src := eventSource()
 	down := cgEventCreateKeyboardEvent(src, 0, true)
 	if down != 0 {
 		cgEventKeyboardSetUnicodeStr(down, uint64(len(units)), (*uint16)(unsafe.Pointer(&units[0])))
@@ -56,9 +61,6 @@ func PostText(s string) {
 	if up != 0 {
 		cgEventPost(tapHID, up)
 		cfRelease(up)
-	}
-	if src != 0 {
-		cfRelease(src)
 	}
 }
 

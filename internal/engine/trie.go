@@ -4,8 +4,8 @@
 package engine
 
 import (
-	"fmt"
 	"slices"
+	"strconv"
 
 	"sokki/internal/model"
 )
@@ -32,6 +32,9 @@ type MatchResult struct {
 type Matcher struct {
 	root    *trieNode
 	cursors []cursor
+	// spare is the slice of the cursors before the last key, reused for
+	// the next, so that a key typed allocates nothing.
+	spare   []cursor
 	pending *MatchResult
 }
 
@@ -71,13 +74,14 @@ func (m *Matcher) Pending() *MatchResult { return m.pending }
 // Feed advances the matcher by a character, and returns the match that
 // fires on it, if any.
 func (m *Matcher) Feed(ch rune) *MatchResult {
-	var next []cursor
-	var longest *MatchResult
+	next := m.spare[:0]
+	var longest *trieNode
+	longestDepth := 0
 	potential := false
 	step := func(n *trieNode, depth int) {
 		next = append(next, cursor{n, depth})
-		if n.match != nil && (longest == nil || depth > longest.TriggerLength) {
-			longest = &MatchResult{Match: *n.match, TriggerLength: depth}
+		if n.match != nil && depth > longestDepth {
+			longest, longestDepth = n, depth
 		}
 		if n.hasDescendants {
 			potential = true
@@ -91,7 +95,7 @@ func (m *Matcher) Feed(ch rune) *MatchResult {
 	if n, ok := m.root.children[ch]; ok {
 		step(n, 1)
 	}
-	m.cursors = next
+	m.spare, m.cursors = m.cursors, next
 
 	// A cursor past the pending trigger means the user is typing a longer
 	// trigger: the shorter one is no longer meant. This runs before a new
@@ -101,18 +105,19 @@ func (m *Matcher) Feed(ch rune) *MatchResult {
 	}
 
 	if longest != nil {
+		res := &MatchResult{Match: *longest.match, TriggerLength: longestDepth}
 		if potential {
-			m.pending = longest
+			m.pending = res
 			return nil
 		}
 		m.pending = nil
-		m.cursors = nil
-		return longest
+		m.cursors = m.cursors[:0]
+		return res
 	}
 	if !potential && m.pending != nil {
 		p := m.pending
 		m.pending = nil
-		m.cursors = nil
+		m.cursors = m.cursors[:0]
 		return p
 	}
 	return nil
@@ -120,7 +125,7 @@ func (m *Matcher) Feed(ch rune) *MatchResult {
 
 // Reset forgets the cursors and the pending match.
 func (m *Matcher) Reset() {
-	m.cursors = nil
+	m.cursors = m.cursors[:0]
 	m.pending = nil
 }
 
@@ -129,7 +134,7 @@ func (m *Matcher) FlushPending() *MatchResult {
 	p := m.pending
 	if p != nil {
 		m.pending = nil
-		m.cursors = nil
+		m.cursors = m.cursors[:0]
 	}
 	return p
 }
@@ -137,14 +142,28 @@ func (m *Matcher) FlushPending() *MatchResult {
 // DebugSummary describes the matcher's state for the trace log: the
 // depths of its cursors and the pending trigger.
 func (m *Matcher) DebugSummary() string {
-	depths := make([]int, len(m.cursors))
-	for i, c := range m.cursors {
-		depths[i] = c.depth
+	var buf [96]byte
+	return string(m.appendSummary(buf[:0]))
+}
+
+// appendSummary appends DebugSummary to b, as cursors=[1 3] pending=:hi.
+func (m *Matcher) appendSummary(b []byte) []byte {
+	var small [16]int
+	depths := small[:0]
+	for _, c := range m.cursors {
+		depths = append(depths, c.depth)
 	}
 	slices.Sort(depths)
-	pending := "-"
-	if m.pending != nil {
-		pending = m.pending.Match.Trigger
+	b = append(b, "cursors=["...)
+	for i, d := range depths {
+		if i > 0 {
+			b = append(b, ' ')
+		}
+		b = strconv.AppendInt(b, int64(d), 10)
 	}
-	return fmt.Sprintf("cursors=%v pending=%s", depths, pending)
+	b = append(b, "] pending="...)
+	if m.pending != nil {
+		return append(b, m.pending.Match.Trigger...)
+	}
+	return append(b, '-')
 }

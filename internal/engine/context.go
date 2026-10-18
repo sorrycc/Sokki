@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -204,18 +205,37 @@ func (c *Context) Feed(ch rune, keyCode uint16, flags Flags) Result {
 
 	c.undo.Clear()
 	c.buffer.Append(ch)
-	tail := c.buffer.Tail(min(16, c.buffer.Len()))
 	res := c.matcher.Feed(ch)
-	summary := c.matcher.DebugSummary()
+	c.traceFeed(ch, res)
 	if res != nil {
-		logx.Tracef("feed '%c' buf=%q %s -> matched %s len=%d", ch, tail, summary, res.Match.Trigger, res.TriggerLength)
 		c.buffer.Clear()
 		c.reschedule()
 		return Result{Action: ActionMatched, Match: res.Match, TriggerLength: res.TriggerLength}
 	}
-	logx.Tracef("feed '%c' buf=%q %s -> none", ch, tail, summary)
 	c.reschedule()
 	return Result{}
+}
+
+// traceFeed logs a key fed, as feed 'o' buf="hello" cursors=[] pending=-
+// -> none, built by hand: it runs for every key typed.
+func (c *Context) traceFeed(ch rune, res *MatchResult) {
+	var buf [256]byte
+	b := append(buf[:0], "feed "...)
+	b = strconv.AppendQuoteRune(b, ch)
+	b = append(b, " buf="...)
+	var tail [64]byte
+	b = strconv.AppendQuote(b, string(c.buffer.appendTail(tail[:0], min(16, c.buffer.Len()))))
+	b = append(b, ' ')
+	b = c.matcher.appendSummary(b)
+	if res == nil {
+		b = append(b, " -> none"...)
+	} else {
+		b = append(b, " -> matched "...)
+		b = append(b, res.Match.Trigger...)
+		b = append(b, " len="...)
+		b = strconv.AppendInt(b, int64(res.TriggerLength), 10)
+	}
+	logx.Trace(b)
 }
 
 // PasteDetected starts the short window after Cmd-V in which typing does
