@@ -27,6 +27,14 @@ The update window shows the section of the version it offers: every release need
 - A match's details say how long it is, whether it is typed or pasted, and when it was last used; typing a trigger now counts as a use, so the palette ranks the matches you type most recently first too.
 - The match editor and Recent Activity draw their own title bars, the editor with what it edits and the file it saves to, and Recent Activity names the match each expansion typed.
 - The welcome on first launch says how to try Sokki and opens Settings.
+- Deleting a match no longer asks first: it goes at once, with Undo in a toast that puts it back where it was.
+- Matches can be duplicated (⌘D, the row's menu, or the button beside the match), and copying a replacement says so.
+- The match editor asks before throwing away unsaved edits when closed with Escape, ⌘W or its close button.
+- A new trigger needs at least two characters, so that a lone `:` can't expand wherever it is typed.
+- ⌘N, ⌘F and ⌘D on the Matches page work wherever the focus is, the sidebar too, not only in the list.
+- A match file in the sidebar has a menu to add a match to it or show it in Finder.
+- The Matches page loses its row of key hints, which doubled the match's buttons; a match file's error shows there with a button to open the config folder.
+- Settings no longer redraws while it is hidden each time a trigger expands.
 
 ## 0.1.1
 

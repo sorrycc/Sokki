@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/config"
@@ -37,9 +39,6 @@ type matchList struct {
 	// file and the query. Frames that change none of them keep it.
 	key    filterKey
 	lowers []string // the triggers and replacements in lower case, by match
-
-	deleteOpen bool
-	toDelete   model.Match
 }
 
 type filterKey struct {
@@ -117,8 +116,25 @@ func (l *matchList) newMatch(trigger string) {
 	l.a.editor.create(l.prefill(), trigger)
 }
 
-func (l *matchList) requestDelete(m model.Match) {
-	l.toDelete, l.deleteOpen = m, true
+func (l *matchList) duplicate(m model.Match) { l.a.editor.duplicate(m) }
+
+// remove deletes m at once, with Undo in a toast to put it back where it
+// was.
+func (l *matchList) remove(c *ui.Context, m model.Match) {
+	i := slices.IndexFunc(l.a.store.Matches, func(x model.Match) bool { return x.ID == m.ID })
+	if i < 0 {
+		return
+	}
+	l.a.store.Remove(m.ID)
+	c.ToastAction(fmt.Sprintf("Deleted %s", m.Trigger), "Undo", func() {
+		l.a.store.Insert(i, m)
+	})
+}
+
+// copyReplacement puts m's replacement on the clipboard, and says so.
+func copyReplacement(c *ui.Context, m model.Match) {
+	copyText(m.Replace)
+	c.Toast("Copied to the clipboard")
 }
 
 func (l *matchList) toggle(m model.Match) {
@@ -126,11 +142,21 @@ func (l *matchList) toggle(m model.Match) {
 	l.a.store.Update(m)
 }
 
+// shortcuts are the page's keys. Settings declares them at the top of
+// the window, so that they work wherever the focus is, the sidebar too.
+func (l *matchList) shortcuts(c *ui.Context) {
+	c.OnShortcut(ui.Cmd, ui.KeyF, func() { l.search.Focus() })
+	c.OnShortcut(ui.Cmd, ui.KeyN, func() { l.newMatch("") })
+	c.OnShortcut(ui.Cmd, ui.KeyD, func() {
+		if m, ok := l.selected(); ok {
+			l.duplicate(m)
+		}
+	})
+}
+
 func (l *matchList) view(c *ui.Context) {
 	l.filter()
 	t := c.Theme()
-	c.OnShortcut(ui.Cmd, ui.KeyF, func() { l.search.Focus() })
-	c.OnShortcut(ui.Cmd, ui.KeyN, func() { l.newMatch("") })
 
 	ui.Column(c).Fill().Children(func() {
 		bar := c.TitleBar()
@@ -147,7 +173,7 @@ func (l *matchList) view(c *ui.Context) {
 				}
 				caption(c, sub).FontFeatures("tnum")
 			})
-			search := ui.SearchField(c, &l.query).Bind(&l.search).Label("Search").Placeholder("Search").Width(200)
+			search := ui.SearchField(c, &l.query).Bind(&l.search).Label("Search").Placeholder("Search").Tooltip("Search matches (⌘F)").Width(200)
 			if search.Changed() {
 				l.filter()
 			}
@@ -187,29 +213,16 @@ func (l *matchList) view(c *ui.Context) {
 		}
 
 		if err := l.a.store.LastError; err != "" {
-			ui.Row(c).Padding(8, 16).Gap(8).AlignItems(ui.Center).Background(t.Warning.Alpha(0.12)).Children(func() {
+			ui.Row(c).Padding(8, 16).Gap(8).AlignItems(ui.Center).Background(t.Warning.Alpha(0.12)).
+				BorderWidth(0.5, 0, 0, 0).BorderColor(t.Warning.Alpha(0.25)).Children(func() {
 				ui.Icon(c, iconWarning).FontSize(13).TextColor(t.Warning)
 				ui.Text(c, err).FontSize(11).SingleLine().Ellipsis("…").Shrink(1).Grow(1).Tooltip(err)
-			})
-		} else {
-			ui.Divider(c)
-			ui.Row(c).Padding(7, 16).Gap(16).AlignItems(ui.Center).Children(func() {
-				hint(c, "↵", "to edit")
-				hint(c, "⌫", "to delete")
-				hint(c, "⌘F", "to search")
-				ui.Spacer(c)
-				hint(c, "⌘N", "for a new match")
+				ui.Button(c, "Open Folder").Label("Open the config folder").OnClick(func() {
+					mygo.Shell.OpenPath(string(l.a.dir))
+				})
 			})
 		}
 	})
-
-	if ui.AlertDialog(c, &l.deleteOpen, "Delete Match?",
-		fmt.Sprintf("The match %q will be permanently deleted. This action cannot be undone.", l.toDelete.Trigger),
-		"Delete", "Cancel") == 0 {
-		if _, ok := l.a.store.Match(l.toDelete.ID); ok {
-			l.a.store.Remove(l.toDelete.ID)
-		}
-	}
 }
 
 // accessBanner asks for the Accessibility permission, without which no
@@ -240,7 +253,7 @@ func (l *matchList) list(c *ui.Context) {
 	}
 	if list.Focused() && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
 		if m, ok := l.selected(); ok {
-			l.requestDelete(m)
+			l.remove(c, m)
 		}
 	}
 }
@@ -302,8 +315,11 @@ func (l *matchList) row(c *ui.Context, i int) {
 		if menu.Item("Edit…").Chosen() {
 			l.edit(m)
 		}
+		if menu.Item("Duplicate…").Chosen() {
+			l.duplicate(m)
+		}
 		if menu.Item("Copy Replacement").Chosen() {
-			copyText(m.Replace)
+			copyReplacement(c, m)
 		}
 		label := "Turn Off"
 		if !m.Enabled {
@@ -313,8 +329,8 @@ func (l *matchList) row(c *ui.Context, i int) {
 			l.toggle(m)
 		}
 		menu.Separator()
-		if menu.Item("Delete…").Chosen() {
-			l.requestDelete(m)
+		if menu.Item("Delete").Chosen() {
+			l.remove(c, m)
 		}
 	})
 }
@@ -412,11 +428,12 @@ func (l *matchList) detail(c *ui.Context) {
 			})
 		})
 		ui.Divider(c).Background(t.Border.Alpha(0.6))
-		ui.Row(c).Padding(10, 16).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Padding(10, 16).Gap(4).AlignItems(ui.Center).Children(func() {
 			ui.Button(c, "Edit…").Label("Edit match").OnClick(func() { l.edit(m) })
-			ui.Button(c, "Copy").Label("Copy replacement").OnClick(func() { copyText(m.Replace) })
 			ui.Spacer(c)
-			iconButton(c, iconTrash, "Delete match").OnClick(func() { l.requestDelete(m) })
+			iconButton(c, iconCopy, "Copy replacement").OnClick(func() { copyReplacement(c, m) })
+			iconButton(c, iconDupe, "Duplicate match (⌘D)").OnClick(func() { l.duplicate(m) })
+			iconButton(c, iconTrash, "Delete match (⌫)").OnClick(func() { l.remove(c, m) })
 		})
 	})
 }

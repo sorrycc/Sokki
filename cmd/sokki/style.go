@@ -40,6 +40,8 @@ var (
 	iconWarning  = svgIcon("triangle-alert")
 	iconTrash    = svgIcon("trash-2")
 	iconPencil   = svgIcon("pencil")
+	iconCopy     = svgIcon("copy")
+	iconDupe     = svgIcon("copy-plus")
 )
 
 // appIcon returns Sokki's icon, decoded the first time it shows.

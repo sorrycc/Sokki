@@ -32,7 +32,7 @@ func testApp(t testing.TB) *app {
 	a.exp = expander.New(expander.Handlers{})
 	a.store.OnMatchesChanged = func() { a.exp.SetMatches(a.store.Matches) }
 	a.settings = newSettingsWindow(a)
-	a.editor = &editorWindow{a: a}
+	a.editor = &editorWindow{a: a, headless: true}
 	a.palette = newPalette(a)
 	a.hud = newHUDPanel(a)
 	a.store.Load()
@@ -97,26 +97,77 @@ func TestMatchesContextMenuDisables(t *testing.T) {
 	}
 }
 
-func TestDeleteAsksFirst(t *testing.T) {
+func TestDeleteUndoes(t *testing.T) {
 	a := testApp(t)
 	tt := ui.NewTester(a.settings.view, 780, 560)
-	if err := tt.RightClick(":hello"); err != nil {
+	if err := tt.RightClick(":paste"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("Delete…"); err != nil {
+	if err := tt.ChooseMenuItem("Delete"); err != nil {
 		t.Fatalf("%v: %q", err, tt.Menu())
 	}
 	tt.Frame()
-	if !tt.HasText("Delete Match?") {
-		t.Fatalf("no confirmation: %q", tt.Texts())
+	if len(a.store.Matches) != 3 {
+		t.Fatalf("not deleted: %+v", a.store.Matches)
 	}
+	if !tt.HasText("Deleted :paste") {
+		t.Fatalf("no undo toast: %q", tt.Texts())
+	}
+	tt.Advance(500 * time.Millisecond)
 	shot(t, tt, "delete")
-	tt.Click("Delete")
+	if err := tt.Click("Undo"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
-	for _, m := range a.store.Matches {
-		if m.Trigger == ":hello" {
-			t.Fatal("not deleted")
-		}
+	if len(a.store.Matches) != 4 || a.store.Matches[2].Trigger != ":paste" {
+		t.Fatalf("not put back in place: %+v", a.store.Matches)
+	}
+}
+
+func TestDuplicateOpensEditor(t *testing.T) {
+	a := testApp(t)
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	tt.Key(ui.Cmd, ui.KeyD)
+	tt.Frame()
+	e := a.editor
+	if e.existing != 0 || e.trigger != ":hello" || e.replace != "Hi there!" || e.title != "Duplicate Match" {
+		t.Fatalf("not a duplicate: %+v", e)
+	}
+	et := ui.NewTester(e.view, 560, 540)
+	if !et.HasText("Another match in default.yml has this trigger.") {
+		t.Fatalf("no conflict warning: %q", et.Texts())
+	}
+}
+
+func TestEditorAsksBeforeDiscarding(t *testing.T) {
+	a := testApp(t)
+	e := a.editor
+	e.edit(a.store.Matches[0])
+	tt := ui.NewTester(e.view, 560, 540)
+	// Unchanged, Escape just closes.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if e.confirmDiscard {
+		t.Fatal("asked with nothing to lose")
+	}
+	e.edit(a.store.Matches[0])
+	e.replace = "Changed"
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if !tt.HasText("Discard Changes?") {
+		t.Fatalf("did not ask: %q", tt.Texts())
+	}
+	shot(t, tt, "editor-discard")
+	if err := tt.Click("Keep Editing"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if e.confirmDiscard || e.replace != "Changed" {
+		t.Fatalf("lost the edit: %q", e.replace)
+	}
+	if a.store.Matches[0].Replace == "Changed" {
+		t.Fatal("saved without Save")
 	}
 }
 
@@ -427,5 +478,35 @@ func TestAgo(t *testing.T) {
 		if got := ago(now.Add(-d), now); got != want {
 			t.Errorf("ago(%v) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// The Matches page's keys work wherever the focus is.
+func TestMatchesShortcutsFromAnywhere(t *testing.T) {
+	a := testApp(t)
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	tt.Key(ui.Cmd, ui.KeyN)
+	tt.Frame()
+	if a.editor.title != "New Match" {
+		t.Fatalf("⌘N: %q", a.editor.title)
+	}
+}
+
+func TestEditorRefusesOneCharacterTrigger(t *testing.T) {
+	a := testApp(t)
+	e := a.editor
+	e.create(config.DefaultMatchFile, "")
+	e.replace = "x"
+	if e.canSave() {
+		t.Fatal("saves the lone colon")
+	}
+	e.trigger = ";"
+	tt := ui.NewTester(e.view, 560, 540)
+	if !tt.HasText("A trigger needs at least 2 characters, so that it doesn't expand by accident.") {
+		t.Fatalf("no hint: %q", tt.Texts())
+	}
+	e.trigger = ";x"
+	if !e.canSave() {
+		t.Fatal("refuses two characters")
 	}
 }

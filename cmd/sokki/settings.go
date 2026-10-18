@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -50,8 +51,10 @@ func newSettingsWindow(a *app) *settingsWindow {
 	return s
 }
 
+// invalidate redraws Settings, if it shows: a hidden window draws again
+// as it shows.
 func (s *settingsWindow) invalidate() {
-	if s != nil && s.win != nil {
+	if s != nil && s.win != nil && s.win.IsVisible() {
 		s.win.Invalidate()
 	}
 }
@@ -78,6 +81,7 @@ func (s *settingsWindow) show() {
 	s.atLogin = mygo.App.OpenAtLogin()
 	s.win.Show()
 	s.win.Focus()
+	s.win.Invalidate() // it skipped what changed while hidden
 }
 
 func (s *settingsWindow) hide() {
@@ -111,6 +115,11 @@ func (s *settingsWindow) view(c *ui.Context) {
 		c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { s.setPage(p) })
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyW, s.hide)
+	onMatches := s.page == matchesPage || strings.HasPrefix(s.page, filePage)
+	if onMatches {
+		s.matches.filter()
+		s.matches.shortcuts(c)
+	}
 
 	if c.Vibrancy() {
 		c.Root().Background(ui.Transparent)
@@ -124,7 +133,7 @@ func (s *settingsWindow) view(c *ui.Context) {
 		ui.Divider(c).Vertical()
 		ui.Column(c).Grow(1).Shrink(1).Background(t.Background).Children(func() {
 			switch {
-			case s.page == matchesPage || strings.HasPrefix(s.page, filePage):
+			case onMatches:
 				s.matches.view(c)
 			case s.page == generalPage:
 				s.general(c)
@@ -153,6 +162,13 @@ func (s *settingsWindow) sidebar(c *ui.Context) {
 			for _, f := range s.a.store.SourceFiles() {
 				ui.SidebarItem(c, filePage+f, iconFile, f).Children(func() {
 					sidebarCount(c, counts[f])
+				}).ContextMenu(func(m *ui.Menu) {
+					if m.Item("New Match in This File…").Chosen() {
+						s.a.editor.create(f, "")
+					}
+					if m.Item("Reveal in Finder").Chosen() {
+						mygo.Shell.ShowItemInFolder(filepath.Join(s.a.dir.MatchDir(), f))
+					}
 				})
 			}
 		})
@@ -194,7 +210,7 @@ func (s *settingsWindow) statusCard(c *ui.Context) {
 					title, detail := "Sokki is on", "Active in all apps"
 					switch {
 					case st.attention:
-						title, detail = "Needs access", "Sokki can't see what you type"
+						title, detail = "Needs access", "Can't see what you type"
 					case s.a.secure:
 						title, detail = "Paused", "A password field is active"
 					case !st.on:

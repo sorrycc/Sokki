@@ -141,6 +141,19 @@ func (s *Store) Remove(id int64) {
 	s.save()
 }
 
+// Insert puts m at index i of the matches, as undoing a delete puts it
+// back where it was.
+func (s *Store) Insert(i int, m model.Match) {
+	if m.SourceFile == "" {
+		m.SourceFile = DefaultMatchFile
+	}
+	if m.ID == 0 || slices.ContainsFunc(s.Matches, func(x model.Match) bool { return x.ID == m.ID }) {
+		m.ID = model.NewID()
+	}
+	s.Matches = slices.Insert(s.Matches, max(0, min(i, len(s.Matches))), m)
+	s.save()
+}
+
 // SaveConfig writes the configuration.
 func (s *Store) SaveConfig() { s.Dir.SaveConfig(s.Config) }
 

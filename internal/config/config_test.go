@@ -120,3 +120,24 @@ func TestReloadKeepsIDs(t *testing.T) {
 		t.Fatal("reload changed the ID")
 	}
 }
+
+func TestStoreInsertRestores(t *testing.T) {
+	d := tempDir(t)
+	d.Bootstrap()
+	s := NewStore(d)
+	s.Load()
+	m := s.Matches[1]
+	s.Remove(m.ID)
+	s.Insert(1, m)
+	if len(s.Matches) != 4 || s.Matches[1].Trigger != m.Trigger {
+		t.Fatalf("not restored in place: %+v", s.Matches)
+	}
+	if r := d.Load(); len(r.Matches) != 4 || r.Matches[1].Trigger != m.Trigger {
+		t.Fatalf("not saved in place: %+v", r.Matches)
+	}
+	// An ID in use gets a new one.
+	s.Insert(99, s.Matches[0])
+	if last := s.Matches[len(s.Matches)-1]; last.ID == s.Matches[0].ID {
+		t.Fatal("duplicate ID")
+	}
+}

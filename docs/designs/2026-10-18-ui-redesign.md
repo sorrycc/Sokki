@@ -124,3 +124,26 @@ sidebar asks for every frame, are derived once per generation.
 - **Benchmarks** (`cmd/sokki/bench_test.go`): a frame of Matches over 2000
   matches that changes nothing takes about 0.17 ms; a key typed in the
   palette over them, its filter and frame, about 0.5 ms.
+
+## Fourth pass: editing safely
+
+- **Delete with Undo**: deleting a match (⌫, the row's menu, the trash
+  button) no longer opens an alert; the match goes at once and a toast
+  offers Undo, which puts it back at its index (`Store.Insert`).
+- **Duplicate** (⌘D, the row's menu, a button) opens the editor on a copy
+  of the match, its trigger warned as taken until it is changed.
+- **Copy** shows a toast. The detail's Copy, Duplicate and Delete are icon
+  buttons beside Edit, which fit the detail at its narrowest.
+- **The editor** asks before dropping edits (`dirty`, against the match as
+  it opened) on Escape, ⌘W or its close button; Cancel still drops them.
+  A trigger under two characters doesn't save, but one a match had
+  already: a lone `:` would expand at every colon typed.
+- **Shortcuts**: `c.OnShortcut` in a view nested in Settings only fired
+  with the focus inside it, so ⌘N and ⌘F did nothing from the sidebar.
+  The Matches page's keys are declared at the window's top
+  (`matchList.shortcuts`).
+- **The hints row** under Matches goes: with the detail's buttons it made
+  two footers. A load error keeps the row, with Open Folder.
+- **Sidebar files** have a menu: New Match in This File, Reveal in Finder.
+- **Hidden Settings** don't redraw as each expansion bumps a recency; the
+  window redraws as it shows instead.

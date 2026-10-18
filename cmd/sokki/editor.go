@@ -20,6 +20,8 @@ import (
 type editorWindow struct {
 	a   *app
 	win *mygo.Window
+	// headless leaves the window out, for tests that run the view alone.
+	headless bool
 
 	existing int64 // the match edited, 0 for a new one
 	trigger  string
@@ -28,6 +30,11 @@ type editorWindow struct {
 	enabled  bool
 	file     string
 	extra    []string // files made here, not saved yet
+
+	// orig is the match as the editor opened it, to tell an edit.
+	orig model.Match
+	// confirmDiscard asks whether to drop the edits on closing.
+	confirmDiscard bool
 
 	addingFile bool
 	newFile    string
@@ -70,10 +77,53 @@ func (e *editorWindow) create(file, trigger string) {
 	e.open("New Match")
 }
 
+// duplicate opens a new match with m's fields, to save under another
+// trigger.
+func (e *editorWindow) duplicate(m model.Match) {
+	e.existing = 0
+	e.trigger, e.replace, e.label, e.enabled = m.Trigger, m.Replace, m.Label, m.Enabled
+	e.file = m.SourceFile
+	if e.file == "" {
+		e.file = config.DefaultMatchFile
+	}
+	e.open("Duplicate Match")
+}
+
+// current is the match as edited.
+func (e *editorWindow) current() model.Match {
+	return model.Match{
+		ID: e.existing, Trigger: e.trigger, Replace: e.replace, Label: strings.TrimSpace(e.label), Enabled: e.enabled,
+		SourceFile: e.file,
+	}
+}
+
+// dirty reports whether the match was edited since the editor opened.
+func (e *editorWindow) dirty() bool {
+	return e.current() != e.orig
+}
+
+// requestClose closes the editor, asking first when that drops edits.
+func (e *editorWindow) requestClose() {
+	if !e.dirty() {
+		e.close()
+		return
+	}
+	e.confirmDiscard = true
+	if e.win != nil {
+		e.win.Focus()
+		e.win.Invalidate()
+	}
+}
+
 func (e *editorWindow) open(title string) {
 	e.addingFile, e.newFile, e.extra = false, "", nil
+	e.confirmDiscard = false
 	e.title, e.selKnown, e.caretSet = title, false, false
 	e.previewOf = "\x00" // the clipboard may have changed: render again
+	e.orig = e.current()
+	if e.headless {
+		return
+	}
 	if e.win == nil {
 		e.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:         title,
@@ -85,7 +135,7 @@ func (e *editorWindow) open(title string) {
 			TitleBarStyle: mygo.TitleBarHidden,
 			Content:       ui.View(e.view),
 		})
-		e.a.hideOnClose(e.win, e.close)
+		e.a.hideOnClose(e.win, e.requestClose)
 	}
 	e.win.SetTitle(title)
 	if !e.win.IsVisible() {
@@ -99,6 +149,7 @@ func (e *editorWindow) open(title string) {
 }
 
 func (e *editorWindow) close() {
+	e.confirmDiscard = false
 	if e.win == nil || !e.win.IsVisible() {
 		return
 	}
@@ -119,18 +170,28 @@ func (e *editorWindow) files() []string {
 	return files
 }
 
+// minTrigger is the fewest characters a trigger has: one character, as
+// a lone ":", would expand wherever it is typed.
+const minTrigger = 2
+
+// triggerTooShort reports a trigger under minTrigger, but for one a
+// match had already, from its file.
+func (e *editorWindow) triggerTooShort() bool {
+	if e.existing != 0 && e.trigger == e.orig.Trigger && e.trigger != "" {
+		return false
+	}
+	return utf8.RuneCountInString(strings.TrimSpace(e.trigger)) < minTrigger
+}
+
 func (e *editorWindow) canSave() bool {
-	return e.trigger != "" && e.replace != ""
+	return !e.triggerTooShort() && e.replace != ""
 }
 
 func (e *editorWindow) save() {
 	if !e.canSave() {
 		return
 	}
-	m := model.Match{
-		ID: e.existing, Trigger: e.trigger, Replace: e.replace, Label: strings.TrimSpace(e.label), Enabled: e.enabled,
-		SourceFile: e.file,
-	}
+	m := e.current()
 	if e.existing != 0 {
 		if _, ok := e.a.store.Match(e.existing); ok {
 			e.a.store.Update(m)
@@ -244,8 +305,12 @@ func labeled(c *ui.Context, label string, fn func()) ui.Element {
 func (e *editorWindow) view(c *ui.Context) {
 	t := c.Theme()
 	c.OnShortcut(ui.Cmd, ui.KeyEnter, e.save)
-	c.OnShortcut(ui.Cmd, ui.KeyW, e.close)
-	if !e.addingFile && c.Shortcut(0, ui.KeyEscape) {
+	c.OnShortcut(ui.Cmd, ui.KeyW, e.requestClose)
+	if !e.addingFile && !e.confirmDiscard && c.Shortcut(0, ui.KeyEscape) {
+		e.requestClose()
+	}
+	if ui.AlertDialog(c, &e.confirmDiscard, "Discard Changes?",
+		"Your edits to this match haven't been saved.", "Keep Editing", "Discard") == 1 {
 		e.close()
 	}
 	ui.Column(c).Fill().Children(func() {
@@ -267,6 +332,9 @@ func (e *editorWindow) view(c *ui.Context) {
 						ui.Icon(c, iconWarning).FontSize(12).TextColor(t.Warning)
 						caption(c, "Another match in "+m.SourceFile+" has this trigger.").Wrap().Shrink(1)
 					})
+				} else if e.triggerTooShort() && e.trigger != ":" && e.trigger != "" {
+					caption(c, "A trigger needs at least 2 characters, so that it doesn't expand by accident.").
+						TextColor(t.Warning).Wrap().Margin(-8, 0, 0, 0)
 				} else {
 					caption(c, "Type the trigger anywhere and Sokki replaces it.").Margin(-8, 0, 0, 0)
 				}
