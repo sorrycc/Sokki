@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
@@ -11,23 +14,38 @@ import (
 
 const settingsTitle = "Sokki Settings"
 
+// The pages of Settings, by the IDs of their sidebar items. A match file's
+// page is filePage followed by its name.
+const (
+	matchesPage   = "matches"
+	filePage      = "file:"
+	generalPage   = "general"
+	shortcutsPage = "shortcuts"
+	privacyPage   = "privacy"
+	aboutPage     = "about"
+)
+
+// sidebarWidth is the width of Settings' sidebar.
+const sidebarWidth = 210
+
 // settingsWindow is the Settings window: the matches, general settings,
-// and privacy. It is made the first time it shows, and hides
-// rather than closes.
+// shortcuts, privacy and about. It is made the first time it shows, and
+// hides rather than closes.
 type settingsWindow struct {
-	a   *app
-	win *mygo.Window
-	tab int
+	a    *app
+	win  *mygo.Window
+	page string
 
 	matches matchList
 
+	filesShown   bool
 	confirmReset bool
 	// atLogin is whether Sokki opens at login, read as Settings shows.
 	atLogin bool
 }
 
 func newSettingsWindow(a *app) *settingsWindow {
-	s := &settingsWindow{a: a}
+	s := &settingsWindow{a: a, page: matchesPage, filesShown: true}
 	s.matches.a = a
 	return s
 }
@@ -41,14 +59,16 @@ func (s *settingsWindow) invalidate() {
 func (s *settingsWindow) show() {
 	if s.win == nil {
 		s.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:     settingsTitle,
-			Width:     620,
-			Height:    520,
-			MinWidth:  500,
-			MinHeight: 400,
-			Hidden:    true,
-			StateKey:  "settings",
-			Content:   ui.View(s.view),
+			Title:         settingsTitle,
+			Width:         780,
+			Height:        560,
+			MinWidth:      640,
+			MinHeight:     440,
+			Hidden:        true,
+			StateKey:      "settings",
+			TitleBarStyle: mygo.TitleBarHidden,
+			Vibrancy:      mygo.VibrancySidebar,
+			Content:       ui.View(s.view),
 		})
 		s.a.hideOnClose(s.win, s.hide)
 	}
@@ -68,24 +88,101 @@ func (s *settingsWindow) hide() {
 	s.a.release()
 }
 
+// showPage shows Settings on a page.
+func (s *settingsWindow) showPage(page string) {
+	s.setPage(page)
+	s.show()
+}
+
+func (s *settingsWindow) setPage(page string) {
+	s.page = page
+	switch {
+	case page == matchesPage:
+		s.matches.setFile("")
+	case strings.HasPrefix(page, filePage):
+		s.matches.setFile(strings.TrimPrefix(page, filePage))
+	}
+}
+
 func (s *settingsWindow) view(c *ui.Context) {
-	c.OnShortcut(ui.Cmd, ui.Key1, func() { s.tab = 0 })
-	c.OnShortcut(ui.Cmd, ui.Key2, func() { s.tab = 1 })
-	c.OnShortcut(ui.Cmd, ui.Key3, func() { s.tab = 2 })
+	t := c.Theme()
+	pages := []string{matchesPage, generalPage, shortcutsPage, privacyPage, aboutPage}
+	for i, p := range pages {
+		c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { s.setPage(p) })
+	}
 	c.OnShortcut(ui.Cmd, ui.KeyW, s.hide)
-	ui.Column(c).Fill().Children(func() {
-		ui.Row(c).Padding(10, 12, 0, 12).Justify(ui.Center).Children(func() {
-			ui.Tabs(c, &s.tab, "Matches", "General", "Privacy")
-		})
-		ui.Column(c).Grow(1).Children(func() {
-			switch s.tab {
-			case 0:
+
+	if c.Vibrancy() {
+		c.Root().Background(ui.Transparent)
+	}
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+		side := ui.Column(c).Width(sidebarWidth).Shrink(0)
+		if !c.Vibrancy() {
+			side.Background(t.Surface)
+		}
+		side.Children(func() { s.sidebar(c) })
+		ui.Divider(c).Vertical()
+		ui.Column(c).Grow(1).Shrink(1).Background(t.Background).Children(func() {
+			switch {
+			case s.page == matchesPage || strings.HasPrefix(s.page, filePage):
 				s.matches.view(c)
-			case 1:
+			case s.page == generalPage:
 				s.general(c)
-			default:
+			case s.page == shortcutsPage:
+				s.shortcuts(c)
+			case s.page == privacyPage:
 				s.privacy(c)
+			default:
+				s.about(c)
 			}
+		})
+	})
+}
+
+func (s *settingsWindow) sidebar(c *ui.Context) {
+	bar := c.TitleBar()
+	// The room of the window's controls, which drags the window.
+	ui.Box(c).Height(max(bar.Height, 12) + 8).DragWindow()
+	page := s.page
+	counts := s.a.store.FileCounts()
+	sb := ui.Sidebar(c, &page, func() {
+		ui.SidebarItem(c, matchesPage, iconMatches, "All Matches").Children(func() {
+			sidebarCount(c, len(s.a.store.Matches))
+		})
+		ui.SidebarSection(c, "Match Files", &s.filesShown, func() {
+			for _, f := range s.a.store.SourceFiles() {
+				ui.SidebarItem(c, filePage+f, iconFile, f).Children(func() {
+					sidebarCount(c, counts[f])
+				})
+			}
+		})
+		ui.SidebarSection(c, "Settings", nil, func() {
+			ui.SidebarItem(c, generalPage, iconGeneral, "General")
+			ui.SidebarItem(c, shortcutsPage, iconKeyboard, "Shortcuts")
+			ui.SidebarItem(c, privacyPage, iconPrivacy, "Privacy")
+			ui.SidebarItem(c, aboutPage, iconAbout, "About")
+		})
+	}).Grow(1).Label("Settings")
+	if c.Vibrancy() {
+		sb.Background(ui.Transparent)
+	}
+	if sb.Changed() {
+		s.setPage(page)
+	}
+}
+
+func sidebarCount(c *ui.Context, n int) {
+	caption(c, fmt.Sprint(n)).FontFeatures("tnum")
+}
+
+// scrollPage lays out a page of settings: its header, which drags the
+// window, over its groups, which scroll.
+func scrollPage(c *ui.Context, title, subtitle string, fn func()) {
+	ui.Scroll(c).Grow(1).Children(func() {
+		ui.Column(c).Padding(0, 28, 28, 28).Gap(22).MaxWidth(680).Children(func() {
+			ui.Box(c).Height(max(c.TitleBar().Height, 12)).DragWindow()
+			ui.Column(c).DragWindow().Children(func() { pageHeader(c, title, subtitle, nil) })
+			fn()
 		})
 	})
 }
@@ -106,7 +203,7 @@ func choose(c *ui.Context, value *string, options []option) bool {
 	if label == "" && len(options) > 0 {
 		label = options[len(options)-1].label
 	}
-	if ui.Select(c, &label, labels).Changed() {
+	if ui.Select(c, &label, labels).MinWidth(170).Changed() {
 		for _, o := range options {
 			if o.label == label {
 				*value = o.value
@@ -120,47 +217,17 @@ func choose(c *ui.Context, value *string, options []option) bool {
 // number edits an int setting.
 func number(c *ui.Context, v *int, lo, hi float64) bool {
 	f := float64(*v)
-	if ui.NumberInput(c, &f, lo, hi, 1).Width(120).Changed() {
+	if ui.NumberInput(c, &f, lo, hi, 1).Changed() {
 		*v = int(f)
 		return true
 	}
 	return false
 }
 
-func section(c *ui.Context, title string, fn func()) {
-	ui.Column(c).Gap(8).Children(func() {
-		ui.Text(c, title).Bold().FontSize(13)
-		ui.Column(c).Padding(12).Gap(10).Radius(8).Background(c.Theme().Surface).Children(func() {
-			ui.Form(c, fn)
-		})
-	})
-}
-
-// switchRow is a switch with what it does beside it, so that the field's
-// label stays level with the switch.
-func switchRow(c *ui.Context, on *bool, description string) bool {
-	changed := false
-	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-		changed = ui.Switch(c, on).Changed()
-		if description != "" {
-			caption(c, description).Wrap().Shrink(1)
-		}
-	})
-	return changed
-}
-
-func muted(c *ui.Context, s string) ui.Element {
-	return ui.Text(c, s).TextColor(c.Theme().TextMuted)
-}
-
-func caption(c *ui.Context, s string) ui.Element {
-	return ui.Text(c, s).FontSize(11).TextColor(c.Theme().TextMuted)
-}
-
 var toggleOptions = []option{
-	{"double_option", "Double Option"},
-	{"double_shift", "Double Shift"},
-	{"double_control", "Double Control"},
+	{"double_option", "Double-tap ⌥ Option"},
+	{"double_shift", "Double-tap ⇧ Shift"},
+	{"double_control", "Double-tap ⌃ Control"},
 	{"none", "None"},
 }
 
@@ -172,63 +239,101 @@ var paletteOptions = []option{
 	{"none", "None"},
 }
 
+// shortcutLabel returns how an option of a shortcut reads, "" for none.
+func shortcutLabel(options []option, value string) string {
+	for _, o := range options {
+		if o.value == value && value != "none" {
+			return o.label
+		}
+	}
+	return ""
+}
+
 func (s *settingsWindow) general(c *ui.Context) {
 	cfg := &s.a.store.Config
 	changed := false
-	ui.Scroll(c).Grow(1).Children(func() {
-		ui.Column(c).Padding(16, 20).Gap(18).Children(func() {
-			section(c, "Behavior", func() {
-				ui.Field(c, "Launch at Login", func() {
-					if ui.Switch(c, &s.atLogin).Changed() {
-						if err := mygo.App.SetOpenAtLogin(s.atLogin); err != nil {
-							logx.Errorf("Failed to set launch at login: %v", err)
-							s.atLogin = !s.atLogin
-						}
+	scrollPage(c, "General", "How Sokki starts and types for you.", func() {
+		group(c, "", func() {
+			setting(c, "Expand triggers", "Turn off to pause Sokki everywhere.", true, func() {
+				changed = ui.Switch(c, &cfg.Enabled).Label("Expand triggers").Changed() || changed
+			})
+			setting(c, "Launch at login", "Start Sokki when you log in to your Mac.", false, func() {
+				if ui.Switch(c, &s.atLogin).Label("Launch at login").Changed() {
+					if err := mygo.App.SetOpenAtLogin(s.atLogin); err != nil {
+						logx.Errorf("Failed to set launch at login: %v", err)
+						s.atLogin = !s.atLogin
 					}
-				})
-				ui.Field(c, "Clipboard threshold (chars)", func() {
-					changed = number(c, &cfg.ClipboardThreshold, 0, 100000) || changed
-				}).Description("Text longer than this will use clipboard injection")
-				ui.Field(c, "Preserve clipboard", func() {
-					changed = switchRow(c, &cfg.PreserveClipboard, "Restore clipboard after clipboard-mode injection") || changed
-				})
-				ui.Field(c, "Inject delay (ms)", func() {
-					changed = number(c, &cfg.InjectDelay, 0, 1000) || changed
-				}).Description("Delay between simulated keypresses")
-				ui.Field(c, "Restore clipboard delay (ms)", func() {
-					changed = number(c, &cfg.RestoreClipboardDelay, 0, 10000) || changed
-				})
+				}
 			})
-			section(c, "Logging", func() {
-				ui.Field(c, "Log level", func() {
-					changed = choose(c, &cfg.LogLevel, []option{{"error", "Error"}, {"debug", "Debug"}}) || changed
-				})
+		})
+		group(c, "Typing", func() {
+			setting(c, "Key delay", "Milliseconds between typed keys. Raise it for apps that drop keys.", true, func() {
+				changed = number(c, &cfg.InjectDelay, 0, 1000) || changed
 			})
-			section(c, "Toggle Shortcut", func() {
-				ui.Field(c, "Quick toggle", func() {
-					changed = choose(c, &cfg.ToggleShortcut, toggleOptions) || changed
-				}).Description("Double-tap to toggle Sokki on/off")
+			setting(c, "Overlap delay", "When a trigger is the start of a longer one, wait this many milliseconds for the longer one.", false, func() {
+				changed = number(c, &cfg.ConflictResolveDelayMs, 50, 5000) || changed
 			})
-			section(c, "Palette Shortcut", func() {
-				ui.Field(c, "Open palette", func() {
-					changed = choose(c, &cfg.PaletteShortcut, paletteOptions) || changed
-				}).Description("Spotlight-style fuzzy search across all your matches")
+		})
+		group(c, "Clipboard", func() {
+			setting(c, "Paste longer than", "Replacements longer than this many characters are pasted instead of typed.", true, func() {
+				changed = number(c, &cfg.ClipboardThreshold, 0, 100000) || changed
 			})
-			if mygo.Updater.Enabled() {
-				section(c, "Updates", func() {
-					ui.Field(c, "Current version", func() { muted(c, mygo.App.Version()) })
-					ui.Field(c, "Automatically check for updates", func() {
-						on := updater.AutomaticChecks()
-						if ui.Switch(c, &on).Changed() {
-							updater.SetAutomaticChecks(on)
-						}
-					})
-					ui.Field(c, "", func() {
-						if ui.Button(c, "Check for Updates…").AlignSelf(ui.Start).Clicked() {
-							updater.CheckForUpdates()
-						}
-					})
-				})
+			setting(c, "Restore clipboard", "Put back what was on the clipboard after pasting.", false, func() {
+				changed = ui.Switch(c, &cfg.PreserveClipboard).Label("Restore clipboard").Changed() || changed
+			})
+			setting(c, "Restore after", "Milliseconds to wait before restoring the clipboard.", false, func() {
+				changed = number(c, &cfg.RestoreClipboardDelay, 0, 10000) || changed
+			})
+		})
+		group(c, "Troubleshooting", func() {
+			setting(c, "Log level", "Debug also logs every expansion.", true, func() {
+				changed = choose(c, &cfg.LogLevel, []option{{"error", "Errors only"}, {"debug", "Debug"}}) || changed
+			})
+			setting(c, "Files", "Matches and settings live in ~/.config/sokki.", false, func() {
+				if ui.Button(c, "Show Log").Clicked() {
+					mygo.Shell.OpenPath(logx.File())
+				}
+				if ui.Button(c, "Open Folder").Clicked() {
+					mygo.Shell.OpenPath(string(s.a.dir))
+				}
+			})
+		})
+	})
+	if changed {
+		s.a.saveConfig()
+	}
+}
+
+func (s *settingsWindow) shortcuts(c *ui.Context) {
+	cfg := &s.a.store.Config
+	changed := false
+	scrollPage(c, "Shortcuts", "Reach Sokki from any app.", func() {
+		group(c, "", func() {
+			setting(c, "Search matches", "Opens the palette to find a match and type it.", true, func() {
+				changed = choose(c, &cfg.PaletteShortcut, paletteOptions) || changed
+			})
+			setting(c, "Pause or resume", "Turns expansion off and on again.", false, func() {
+				changed = choose(c, &cfg.ToggleShortcut, toggleOptions) || changed
+			})
+			setting(c, "Recent Activity", "Shows what Sokki did with what you typed.", false, func() {
+				changed = choose(c, &cfg.HUDShortcut, toggleOptions) || changed
+			})
+		})
+		if cfg.HUDShortcut != "none" && cfg.HUDShortcut == cfg.ToggleShortcut {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).PaddingX(4).Children(func() {
+				ui.Icon(c, iconWarning).FontSize(12).TextColor(c.Theme().Warning)
+				caption(c, "Both use the same key: it shows Recent Activity.").Wrap().Shrink(1)
+			})
+		}
+		group(c, "In the palette", func() {
+			for i, h := range [][2]string{
+				{"↵", "Type the match into the app you were in"},
+				{"⌘↵", "Edit the match"},
+				{"⌘N", "New match"},
+				{"⌘,", "Open Settings"},
+				{"esc", "Clear the search, then close"},
+			} {
+				setting(c, h[1], "", i == 0, func() { kbd(c, h[0]) })
 			}
 		})
 	})
@@ -246,45 +351,87 @@ func truncate(s string, n int) string {
 }
 
 func (s *settingsWindow) privacy(c *ui.Context) {
-	ui.Scroll(c).Grow(1).Children(func() {
-		ui.Column(c).Padding(16, 20).Gap(18).Children(func() {
-			if s.a.telemetry == nil {
-				muted(c, "Telemetry is only active in packaged release builds.")
-				return
-			}
-			p := s.a.prefs
-			section(c, "Telemetry", func() {
-				ui.Field(c, "Send crash reports automatically", func() {
-					on := p.Get().CrashReportsOn()
-					if switchRow(c, &on, "When Sokki crashes it keeps a crash log. We upload those on next launch so we can fix the bug.") {
-						p.Update(func(pr *prefs.Prefs) { pr.CrashReports = &on })
-					}
-				})
-				ui.Field(c, "Send anonymous usage stats", func() {
-					on := p.Get().DailyPingOn()
-					if switchRow(c, &on, "Sends one anonymous ping per day with your app version, macOS version, and locale. Used to count active installs.") {
-						p.Update(func(pr *prefs.Prefs) { pr.DailyPing = &on })
-					}
-				})
+	scrollPage(c, "Privacy", "What Sokki sends, and what it never does.", func() {
+		if s.a.telemetry == nil {
+			group(c, "", func() {
+				setting(c, "Telemetry is off in this build", "Only release builds can send crash reports and usage stats.", true, func() {})
 			})
-			caption(c, "We never send personal data, keystroke contents, match text, or clipboard data. Data is stored on Cloudflare under our account and auto-deleted after one year.")
-			section(c, "Identifier", func() {
-				ui.Field(c, "Anonymous ID", func() {
-					id := p.InstallID()
-					muted(c, truncate(id, 8)).Font("monospace")
-				})
-				ui.Field(c, "", func() {
-					if ui.Button(c, "Reset Anonymous ID").AlignSelf(ui.Start).Clicked() {
-						s.confirmReset = true
-					}
-				})
+			s.never(c)
+			return
+		}
+		p := s.a.prefs
+		group(c, "", func() {
+			setting(c, "Send crash reports", "When Sokki crashes it keeps a crash log, sent at the next launch so the bug can be fixed.", true, func() {
+				on := p.Get().CrashReportsOn()
+				if ui.Switch(c, &on).Label("Send crash reports").Changed() {
+					p.Update(func(pr *prefs.Prefs) { pr.CrashReports = &on })
+				}
+			})
+			setting(c, "Send anonymous usage stats", "One ping a day with the versions of Sokki and macOS and your locale, to count active installs.", false, func() {
+				on := p.Get().DailyPingOn()
+				if ui.Switch(c, &on).Label("Send anonymous usage stats").Changed() {
+					p.Update(func(pr *prefs.Prefs) { pr.DailyPing = &on })
+				}
 			})
 		})
+		group(c, "Identifier", func() {
+			setting(c, "Anonymous ID", "Reports and pings carry it, and nothing else about you.", true, func() {
+				muted(c, truncate(p.InstallID(), 8)).Font("monospace").Selectable()
+				if ui.Button(c, "Reset…").Clicked() {
+					s.confirmReset = true
+				}
+			})
+		})
+		s.never(c)
 	})
 	if ui.AlertDialog(c, &s.confirmReset, "Reset Anonymous ID?",
-		"Future pings and crashes will be attributed to a new UUID. This does not change the telemetry toggles above.",
+		"Future pings and crash reports will carry a new ID. The switches above stay as they are.",
 		"Cancel", "Reset") == 1 {
-		p := s.a.prefs
-		p.ResetInstallID()
+		s.a.prefs.ResetInstallID()
 	}
+}
+
+func (s *settingsWindow) never(c *ui.Context) {
+	t := c.Theme()
+	ui.Row(c).Gap(10).Padding(12, 14).Radius(10).Background(t.Success.Alpha(0.1)).AlignItems(ui.Start).Children(func() {
+		ui.Icon(c, iconPrivacy).FontSize(16).TextColor(t.Success)
+		ui.Text(c, "Sokki never sends what you type, your matches or your clipboard. What it sends is kept on Cloudflare under our account and deleted after a year.").
+			FontSize(12).Wrap().Shrink(1)
+	})
+}
+
+func (s *settingsWindow) about(c *ui.Context) {
+	t := c.Theme()
+	ui.Column(c).Fill().Children(func() {
+		ui.Box(c).Height(max(c.TitleBar().Height, 12) + 40).DragWindow()
+		ui.Column(c).Grow(1).AlignItems(ui.Center).Gap(6).Padding(0, 28, 28, 28).Children(func() {
+			if icon := appIcon(); icon != nil {
+				ui.Image(c, icon).Size(112, 112).Margin(0, 0, 8, 0)
+			}
+			ui.Text(c, "Sokki").FontSize(26).Bold()
+			muted(c, "Version "+mygo.App.Version()).Selectable()
+			caption(c, "Type a trigger anywhere, and Sokki types the rest.").Margin(4, 0, 0, 0)
+			ui.Row(c).Gap(8).Margin(18, 0, 0, 0).Children(func() {
+				if mygo.Updater.Enabled() && ui.PrimaryButton(c, "Check for Updates…").Clicked() {
+					updater.CheckForUpdates()
+				}
+				if ui.Button(c, "Release Notes").Clicked() {
+					mygo.Shell.OpenExternal("https://github.com/sorrycc/Sokki/blob/main/CHANGELOG.md")
+				}
+				if ui.Button(c, "GitHub").Clicked() {
+					mygo.Shell.OpenExternal("https://github.com/sorrycc/Sokki")
+				}
+			})
+			if mygo.Updater.Enabled() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(14, 0, 0, 0).Children(func() {
+					on := updater.AutomaticChecks()
+					if ui.Checkbox(c, &on, "Check for updates automatically").Changed() {
+						updater.SetAutomaticChecks(on)
+					}
+				})
+			}
+			ui.Spacer(c)
+			ui.Text(c, "© 2026 sorrycc").FontSize(11).TextColor(t.TextMuted.Alpha(0.8))
+		})
+	})
 }

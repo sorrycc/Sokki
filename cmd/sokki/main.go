@@ -184,6 +184,7 @@ func (a *app) ready() {
 		if a.tray != nil {
 			a.tray.Destroy()
 		}
+		logx.Flush()
 	})
 	if created {
 		go a.welcome()

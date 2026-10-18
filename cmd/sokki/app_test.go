@@ -56,8 +56,8 @@ func shot(t *testing.T, tt *ui.Tester, name string) {
 
 func TestMatchesTab(t *testing.T) {
 	a := testApp(t)
-	tt := ui.NewTester(a.settings.view, 620, 520)
-	for _, want := range []string{"Matches", ":hello", "Hi there!", ":sig", "default.yml"} {
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	for _, want := range []string{"All Matches", ":hello", "Hi there!", ":sig", "default.yml"} {
 		if !tt.HasText(want) {
 			t.Fatalf("no %q in %q", want, tt.Texts())
 		}
@@ -80,11 +80,11 @@ func TestMatchesTab(t *testing.T) {
 
 func TestMatchesContextMenuDisables(t *testing.T) {
 	a := testApp(t)
-	tt := ui.NewTester(a.settings.view, 620, 520)
+	tt := ui.NewTester(a.settings.view, 780, 560)
 	if err := tt.RightClick(":hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("Disable"); err != nil {
+	if err := tt.ChooseMenuItem("Turn Off"); err != nil {
 		t.Fatalf("%v: %q", err, tt.Menu())
 	}
 	tt.Frame()
@@ -92,18 +92,21 @@ func TestMatchesContextMenuDisables(t *testing.T) {
 	if m.Trigger != ":hello" || m.Enabled {
 		t.Fatalf("not disabled: %+v", m)
 	}
-	if !tt.HasText("Disabled") {
-		t.Fatal("no Disabled badge")
+	if !tt.HasText("Off") {
+		t.Fatal("no Off badge")
 	}
 }
 
 func TestDeleteAsksFirst(t *testing.T) {
 	a := testApp(t)
-	tt := ui.NewTester(a.settings.view, 620, 520)
-	tt.Click(":hello")
-	if err := tt.Click("Remove match"); err != nil {
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	if err := tt.RightClick(":hello"); err != nil {
 		t.Fatal(err)
 	}
+	if err := tt.ChooseMenuItem("Delete…"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Menu())
+	}
+	tt.Frame()
 	if !tt.HasText("Delete Match?") {
 		t.Fatalf("no confirmation: %q", tt.Texts())
 	}
@@ -117,39 +120,68 @@ func TestDeleteAsksFirst(t *testing.T) {
 	}
 }
 
-func TestSettingsTabs(t *testing.T) {
+func TestSettingsPages(t *testing.T) {
 	a := testApp(t)
-	tt := ui.NewTester(a.settings.view, 620, 640)
+	tt := ui.NewTester(a.settings.view, 780, 640)
 	tt.Key(ui.Cmd, ui.Key2)
-	for _, want := range []string{"Behavior", "Clipboard threshold (chars)", "Quick toggle", "Open palette"} {
+	for _, want := range []string{"General", "Launch at login", "Paste longer than", "Overlap delay", "Log level"} {
 		if !tt.HasText(want) {
 			t.Fatalf("General lacks %q: %q", want, tt.Texts())
 		}
 	}
 	shot(t, tt, "general")
 	tt.Key(ui.Cmd, ui.Key3)
-	if !tt.HasText("Telemetry is only active in packaged release builds.") {
-		t.Fatalf("Privacy tab: %q", tt.Texts())
+	for _, want := range []string{"Search matches", "Pause or resume", "Recent Activity"} {
+		if !tt.HasText(want) {
+			t.Fatalf("Shortcuts lacks %q: %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "shortcuts")
+	tt.Key(ui.Cmd, ui.Key4)
+	if !tt.HasText("Telemetry is off in this build") {
+		t.Fatalf("Privacy: %q", tt.Texts())
 	}
 	a.telemetry = &telemetry.Config{EndpointURL: "https://example.com", IngestKey: "k"}
 	tt.Frame()
-	if !tt.HasText("Send crash reports automatically") || !tt.HasText("Anonymous ID") {
-		t.Fatalf("Privacy tab: %q", tt.Texts())
+	if !tt.HasText("Send crash reports") || !tt.HasText("Anonymous ID") {
+		t.Fatalf("Privacy: %q", tt.Texts())
 	}
 	shot(t, tt, "privacy")
+	tt.Key(ui.Cmd, ui.Key5)
+	if !tt.HasText("Sokki") || !tt.HasText("Release Notes") {
+		t.Fatalf("About: %q", tt.Texts())
+	}
+	shot(t, tt, "about")
+	tt.SetDark(true)
+	tt.Key(ui.Cmd, ui.Key1)
+	shot(t, tt, "matches-dark")
+}
+
+func TestSidebarShowsAFile(t *testing.T) {
+	a := testApp(t)
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	if err := tt.Click("default.yml"); err != nil {
+		t.Fatal(err)
+	}
+	if a.settings.page != filePage+"default.yml" || a.settings.matches.file != "default.yml" {
+		t.Fatalf("page %q, file %q", a.settings.page, a.settings.matches.file)
+	}
+	if !tt.HasText("4 matches") {
+		t.Fatalf("file page: %q", tt.Texts())
+	}
 }
 
 func TestGeneralSavesConfig(t *testing.T) {
 	a := testApp(t)
-	a.settings.tab = 1
-	tt := ui.NewTester(a.settings.view, 620, 640)
-	if err := tt.Click("Double Option"); err != nil {
-		// The select shows its choice, None by default.
-		if err := tt.Click("None"); err != nil {
-			t.Fatal(err)
-		}
+	a.settings.setPage(shortcutsPage)
+	tt := ui.NewTester(a.settings.view, 780, 640)
+	// The selects show their choice: only the toggle's is None.
+	a.store.Config.PaletteShortcut, a.store.Config.HUDShortcut = "opt+space", "double_control"
+	tt.Frame()
+	if err := tt.Click("None"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
 	}
-	if err := tt.Click("Double Shift"); err != nil {
+	if err := tt.Click("Double-tap ⇧ Shift"); err != nil {
 		t.Fatalf("%v: %q", err, tt.Texts())
 	}
 	if a.store.Config.ToggleShortcut != "double_shift" {
@@ -164,11 +196,17 @@ func TestEditorSavesNewMatch(t *testing.T) {
 	a := testApp(t)
 	e := a.editor
 	e.existing, e.trigger, e.file, e.enabled = 0, ":", config.DefaultMatchFile, true
-	tt := ui.NewTester(e.view, 500, 480)
-	if !tt.HasText("New Match") || !tt.HasText("Replacement") {
+	tt := ui.NewTester(e.view, 560, 560)
+	if !tt.HasText("Trigger") || !tt.HasText("Replacement") {
 		t.Fatalf("editor: %q", tt.Texts())
 	}
 	shot(t, tt, "editor")
+	e.trigger, e.replace = ":hello", "Today is {{date:yyyy}}"
+	tt.Frame()
+	if !tt.HasText("Another match in default.yml has this trigger.") || !tt.HasText("Preview") {
+		t.Fatalf("editor: %q", tt.Texts())
+	}
+	shot(t, tt, "editor-preview")
 	e.trigger = ":bye"
 	e.replace = "Goodbye!"
 	tt.Frame()
@@ -208,7 +246,7 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 		t.Fatalf("all: %d", len(p.results))
 	}
 	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
-	if !tt.HasText(":hello") || !tt.HasText("Hi there!") {
+	if !tt.HasText(":hello") || !tt.HasText("Hi there!") || !tt.HasText("Insert") {
 		t.Fatalf("palette: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyDown)
@@ -219,16 +257,21 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	p.query = "zzz"
 	p.filter()
 	tt.Frame()
-	if !tt.HasText("No results") {
+	if !tt.HasText("No Results") {
 		t.Fatalf("empty: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-empty")
+	tt.Key(0, ui.KeyEscape)
+	if p.query != "" || len(p.results) != 4 {
+		t.Fatalf("escape did not clear: %q", p.query)
 	}
 }
 
 func TestHUD(t *testing.T) {
 	a := testApp(t)
 	h := a.hud
-	tt := ui.NewTester(h.view, 380, 420)
-	if !tt.HasText("No recent activity") {
+	tt := ui.NewTester(h.view, 380, 460)
+	if !tt.HasText("No Recent Activity") {
 		t.Fatalf("empty: %q", tt.Texts())
 	}
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.Local)
@@ -236,7 +279,7 @@ func TestHUD(t *testing.T) {
 	h.record(model.HUDEvent{ID: 2, Time: now, Verdict: model.VerdictMatched, Buffer: ":hi", MatchedTrigger: ":hi"})
 	h.record(model.HUDEvent{ID: 3, Time: now, Verdict: model.VerdictMatched, Buffer: ":fix", MatchedTrigger: ":fix", Note: "timeout"})
 	tt.Frame()
-	if !tt.HasText("•••••• ••••") || tt.HasText("secret word") || !tt.HasText("Too soon") || !tt.HasText("timeout") {
+	if !tt.HasText("•••••• ••••") || tt.HasText("secret word") || !tt.HasText("Too soon after a paste") || !tt.HasText("timeout") {
 		t.Fatalf("hud: %q", tt.Texts())
 	}
 	shot(t, tt, "hud")

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
+## Unreleased
+
+- **Settings is redesigned** in the manner of System Settings: a sidebar with every match file and its count, and pages for General, Shortcuts, Privacy and About, their settings in grouped cards with what each does under it.
+- **New settings**: the Recent Activity shortcut and the delay before a trigger that starts a longer one expands, both only in the config file before.
+- **The palette** shows each match's label with its trigger as a key, a preview with its file and length, and the keys it takes along its bottom. Escape clears the search before closing, and ⌘N makes a match of what was typed.
+- **The match editor** puts the trigger and label side by side, inserts variables from a menu, previews the replacement with its variables filled, and warns when another match has the same trigger.
+- **Recent Activity** says in words what happened to each trigger, and has a button to clear it.
+- **The menu bar menu** says whether Sokki is on, pauses and resumes it, opens the palette, a new match and Recent Activity, and keeps reloading, the log and restarting under Troubleshooting.
+- Typing is lighter on the system: Sokki writes its log from a background thread with the file kept open, instead of opening it for every key typed.
+- The matches search also looks in labels.
+
 ## 0.1.1
 
 - **AI matches are removed**, with the AI tab of Settings and the Match editor's "AI prompt" toggle. A match file that still has a `prompt:` match fails to load until the match is deleted or turned into a `replace:`; the `ai:` table of `config/default.yml` is ignored.

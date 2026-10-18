@@ -42,28 +42,51 @@ func (a *app) updateTray() {
 	}
 	a.tray.SetToolTip(tip)
 	a.tray.SetMenu(a.trayMenu())
+	a.settings.invalidate()
 }
 
 func (a *app) trayMenu() *mygo.Menu {
 	click := func(fn func()) func(*mygo.MenuItem, *mygo.Window) {
 		return func(*mygo.MenuItem, *mygo.Window) { fn() }
 	}
-	items := []*mygo.MenuItem{
-		&mygo.MenuItem{Label: "Sokki v" + mygo.App.Version(), Disabled: true},
+	cfg := a.store.Config
+	status := "Sokki is on"
+	switch {
+	case a.secure:
+		status = "Paused while you type a password"
+	case !cfg.Enabled:
+		status = "Sokki is paused"
 	}
-	if a.secure {
-		items = append(items, &mygo.MenuItem{Label: "Secure Input Active", Disabled: true})
+	items := []*mygo.MenuItem{
+		{Label: status, Disabled: true},
+	}
+	if a.store.LastError != "" {
+		items = append(items, &mygo.MenuItem{Label: "⚠ A match file has an error", Click: click(func() { a.settings.showPage(matchesPage) })})
+	}
+	enabled := "Pause Sokki"
+	if !cfg.Enabled {
+		enabled = "Resume Sokki"
+	}
+	if s := shortcutLabel(toggleOptions, cfg.ToggleShortcut); s != "" {
+		enabled += "  (" + s + ")"
+	}
+	search := "Search Matches…"
+	if s := shortcutLabel(paletteOptions, cfg.PaletteShortcut); s != "" {
+		search += "  (" + s + ")"
 	}
 	items = append(items,
-		mygo.Separator(),
-		&mygo.MenuItem{Label: "Enabled", Type: mygo.MenuItemCheckbox, Checked: a.store.Config.Enabled, Click: func(it *mygo.MenuItem, _ *mygo.Window) {
+		&mygo.MenuItem{Label: enabled, Click: func(*mygo.MenuItem, *mygo.Window) {
 			a.store.Config.Enabled = !a.store.Config.Enabled
 			a.exp.SetConfig(a.store.Config)
 			a.updateTray()
+			a.settings.invalidate()
 		}},
-		&mygo.MenuItem{Label: "Reload Config", Accelerator: "Cmd+R", Click: click(a.reloadConfig)},
-		&mygo.MenuItem{Label: "Open Config Folder", Click: click(func() { mygo.Shell.OpenPath(string(a.dir)) })},
-		&mygo.MenuItem{Label: "Show Log", Click: click(func() { mygo.Shell.OpenPath(logx.File()) })},
+		mygo.Separator(),
+		&mygo.MenuItem{Label: search, Click: click(a.palette.show)},
+		&mygo.MenuItem{Label: "New Match…", Click: click(func() { a.settings.matches.newMatch("") })},
+		&mygo.MenuItem{Label: "Recent Activity", Click: click(a.hud.toggle)},
+		mygo.Separator(),
+		&mygo.MenuItem{Label: "Settings…", Accelerator: "Cmd+,", Click: click(a.openSettings)},
 	)
 	if mygo.Updater.Enabled() {
 		items = append(items, &mygo.MenuItem{Label: "Check for Updates…", Click: click(func() {
@@ -72,18 +95,29 @@ func (a *app) trayMenu() *mygo.Menu {
 		})})
 	}
 	items = append(items,
+		&mygo.MenuItem{Label: "Troubleshooting", Submenu: []*mygo.MenuItem{
+			{Label: "Reload Matches", Click: click(a.reloadConfig)},
+			{Label: "Open Config Folder", Click: click(func() { mygo.Shell.OpenPath(string(a.dir)) })},
+			{Label: "Show Log", Click: click(func() { mygo.Shell.OpenPath(logx.File()) })},
+			mygo.Separator(),
+			{Label: "Restart Sokki", Click: click(a.relaunch)},
+		}},
 		mygo.Separator(),
-		&mygo.MenuItem{Label: "Settings...", Accelerator: "Cmd+,", Click: click(a.openSettings)},
-		&mygo.MenuItem{Label: "Quit & Reopen", Click: click(a.relaunch)},
-		&mygo.MenuItem{Label: "Quit", Accelerator: "Cmd+Q", Click: click(mygo.App.Quit)},
+		&mygo.MenuItem{Label: "Quit Sokki", Accelerator: "Cmd+Q", Click: click(mygo.App.Quit)},
 	)
 	return mygo.NewMenu(items)
 }
+
+// trayIcons are the menu bar icons drawn so far, by alpha.
+var trayIcons = map[float64][]byte{}
 
 // trayIcon draws the menu bar icon, a keycap with a tab arrow (⇥), black
 // on transparent for macOS to tint, at 36×36 pixels for an 18-point
 // status item, with alpha for its dimmed state.
 func trayIcon(alpha float64) []byte {
+	if b, ok := trayIcons[alpha]; ok {
+		return b
+	}
 	const size, scale = 36, 2.0 // pixels, pixels per point
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 	const ss = 4 // supersamples per axis
@@ -106,6 +140,7 @@ func trayIcon(alpha float64) []byte {
 	}
 	var b bytes.Buffer
 	png.Encode(&b, img)
+	trayIcons[alpha] = b.Bytes()
 	return b.Bytes()
 }
 

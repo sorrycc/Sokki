@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"sokki/internal/config"
 	"sokki/internal/macos"
 	"sokki/internal/model"
 )
@@ -44,7 +45,7 @@ func (h *hudPanel) toggle() {
 			Panel:     true,
 			Hidden:    true,
 			Width:     380,
-			Height:    420,
+			Height:    460,
 			MinWidth:  320,
 			MinHeight: 240,
 			Content:   ui.View(h.view),
@@ -61,21 +62,35 @@ func (h *hudPanel) toggle() {
 
 // createMatch opens a new match with the typed text as its trigger.
 func (h *hudPanel) createMatch(buffer string) {
-	h.a.settings.show()
-	h.a.settings.tab = 0
-	h.a.settings.matches.newMatch(buffer)
+	h.a.editor.create(config.DefaultMatchFile, strings.TrimSpace(buffer))
 }
 
+func copyText(s string) { macos.SetPasteboardString(s) }
+
 func (h *hudPanel) view(c *ui.Context) {
-	if len(h.events) == 0 {
-		ui.Column(c).Fill().Center().Gap(6).Padding(24).Children(func() {
-			ui.Text(c, "No recent activity").Bold().FontSize(15)
-			muted(c, "Type in another app — matches and blocks appear here.").TextAlign(ui.Center)
+	t := c.Theme()
+	ui.Column(c).Fill().Children(func() {
+		ui.Row(c).Padding(10, 10, 10, 14).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconHistory).FontSize(15).TextColor(t.TextMuted)
+			ui.Text(c, "Recent Activity").FontWeight(600).Grow(1)
+			if len(h.events) > 0 {
+				iconButton(c, iconTrash, "Clear").OnClick(func() {
+					h.events, h.revealed = nil, map[int64]bool{}
+				})
+			}
 		})
-		return
-	}
-	h.list.Key = func(i int) any { return h.events[i].ID }
-	ui.List(c, &h.list, len(h.events), func(i int) { h.row(c, i) }).Fill().Padding(6)
+		ui.Divider(c)
+		if len(h.events) == 0 {
+			emptyState(c, iconHistory, "No Recent Activity", "Type in another app: expansions and what blocked them show here.")
+			return
+		}
+		h.list.Key = func(i int) any { return h.events[i].ID }
+		ui.List(c, &h.list, len(h.events), func(i int) { h.row(c, i) }).Grow(1).Padding(6).Gap(2)
+		ui.Divider(c)
+		ui.Row(c).Padding(7, 14).Children(func() {
+			caption(c, "Click to reveal what was typed · right-click for more").SingleLine().Ellipsis("…")
+		})
+	})
 }
 
 func compact(v model.Verdict) bool {
@@ -95,54 +110,70 @@ func masked(s string) string {
 func (h *hudPanel) row(c *ui.Context, i int) {
 	ev := h.events[i]
 	t := c.Theme()
-	bg := ui.Transparent
-	if i%2 == 1 {
-		bg = t.Surface
+	row := ui.Row(c).Padding(8, 10).Gap(10).AlignItems(ui.Start).Radius(8)
+	if row.Hovered() {
+		row.Background(t.Text.Alpha(0.05))
 	}
-	row := ui.Row(c).Padding(6, 8).Gap(8).AlignItems(ui.Start).Radius(6).Background(bg).Children(func() {
-		verdictChip(c, ev.Verdict)
-		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+	row.Children(func() {
+		verdictIcon(c, ev.Verdict)
+		ui.Column(c).Grow(1).Shrink(1).Gap(3).Children(func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, verdictLabel(ev.Verdict)).FontWeight(600).SingleLine().Grow(1)
+				caption(c, ev.Time.Format("15:04:05")).FontFeatures("tnum")
+			})
 			if !compact(ev.Verdict) {
 				buf := ev.Buffer
 				if !h.revealed[ev.ID] {
 					buf = masked(buf)
 				}
-				ui.Text(c, buf).Font("monospace").SingleLine().Ellipsis("…")
+				ui.Text(c, buf).Font("monospace").FontSize(12).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 			}
 			if ev.MatchedTrigger != "" {
-				if compact(ev.Verdict) {
-					ui.Text(c, ev.MatchedTrigger).Font("monospace").SingleLine()
-				} else {
-					caption(c, "→ "+ev.MatchedTrigger).SingleLine()
-				}
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					if !compact(ev.Verdict) {
+						caption(c, "Would have expanded")
+					}
+					keycap(c, ev.MatchedTrigger, false).Shrink(1).Ellipsis("…")
+				})
 			}
 			if ev.Note != "" {
-				caption(c, ev.Note).MaxLines(2)
+				caption(c, ev.Note).Wrap().MaxLines(2)
 			}
 		})
-		caption(c, ev.Time.Format("15:04:05")).FontFeatures("tnum")
 	})
 	if row.Clicked() {
 		h.revealed[ev.ID] = !h.revealed[ev.ID]
 	}
 	row.ContextMenu(func(m *ui.Menu) {
-		if m.Item("Create match from this").Chosen() {
+		if m.Item("New Match from This…").Chosen() {
 			h.createMatch(ev.Buffer)
 		}
 		if m.Item("Copy").Chosen() {
-			macos.SetPasteboardString(ev.Buffer)
+			copyText(ev.Buffer)
 		}
 	})
 }
 
-func verdictChip(c *ui.Context, v model.Verdict) {
-	t := c.Theme()
-	label, tint := "Matched", t.Success
+func verdictLabel(v model.Verdict) string {
 	switch v {
 	case model.VerdictTooSoon:
-		label, tint = "Too soon", t.Warning
+		return "Too soon after a paste"
 	case model.VerdictDisabled:
-		label, tint = "Disabled", t.TextMuted
+		return "Sokki is paused"
 	}
-	ui.Text(c, label).FontSize(11).Bold().Padding(2, 6).Radius(8).Background(tint.Alpha(0.25)).SingleLine()
+	return "Expanded"
+}
+
+func verdictIcon(c *ui.Context, v model.Verdict) {
+	t := c.Theme()
+	icon, tint := iconMatched, t.Success
+	switch v {
+	case model.VerdictTooSoon:
+		icon, tint = iconWarning, t.Warning
+	case model.VerdictDisabled:
+		icon, tint = iconPaused, t.TextMuted
+	}
+	ui.Box(c).Size(26, 26).Radius(7).Background(tint.Alpha(0.14)).Center().Shrink(0).Children(func() {
+		ui.Icon(c, icon).FontSize(14).TextColor(tint)
+	})
 }

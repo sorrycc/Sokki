@@ -3,11 +3,14 @@ package main
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/config"
+	"sokki/internal/engine"
+	"sokki/internal/macos"
 	"sokki/internal/model"
 )
 
@@ -29,6 +32,10 @@ type editorWindow struct {
 	newFile    string
 	newFileIn  ui.Handle
 	triggerIn  ui.Handle
+
+	// previewText is the preview of previewOf, the replacement it was
+	// rendered for, kept while the replacement does not change.
+	previewOf, previewText string
 }
 
 func (e *editorWindow) edit(m model.Match) {
@@ -54,13 +61,14 @@ func (e *editorWindow) create(file, trigger string) {
 
 func (e *editorWindow) open(title string) {
 	e.addingFile, e.newFile, e.extra = false, "", nil
+	e.previewOf = "\x00" // the clipboard may have changed: render again
 	if e.win == nil {
 		e.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:     title,
-			Width:     500,
-			Height:    480,
-			MinWidth:  420,
-			MinHeight: 380,
+			Width:     560,
+			Height:    560,
+			MinWidth:  460,
+			MinHeight: 440,
 			Hidden:    true,
 			Content:   ui.View(e.view),
 		})
@@ -176,60 +184,129 @@ func (e *editorWindow) commitNewFile() {
 	e.file, e.addingFile, e.newFile = name, false, ""
 }
 
+// variables are what the editor's Insert menu adds to the replacement.
+var variables = []struct{ label, text string }{
+	{"Clipboard", "{{clipboard}}"},
+	{"Date (2026-10-18)", "{{date:yyyy-MM-dd}}"},
+	{"Long Date (October 18, 2026)", "{{date:MMMM d, yyyy}}"},
+	{"Time (14:30)", "{{date:HH:mm}}"},
+	{"Weekday (Sunday)", "{{date:EEEE}}"},
+}
+
+// conflict returns the other match with the trigger being edited.
+func (e *editorWindow) conflict() (model.Match, bool) {
+	for _, m := range e.a.store.Matches {
+		if m.Trigger == e.trigger && m.ID != e.existing {
+			return m, true
+		}
+	}
+	return model.Match{}, false
+}
+
+// labeled puts a label over a control, as the fields of the editor.
+func labeled(c *ui.Context, label string, fn func()) ui.Element {
+	return ui.Column(c).Gap(6).Children(func() {
+		ui.Text(c, label).FontSize(12).FontWeight(600)
+		fn()
+	})
+}
+
 func (e *editorWindow) view(c *ui.Context) {
+	t := c.Theme()
 	c.OnShortcut(ui.Cmd, ui.KeyEnter, e.save)
 	c.OnShortcut(ui.Cmd, ui.KeyW, e.close)
 	if !e.addingFile && c.Shortcut(0, ui.KeyEscape) {
 		e.close()
 	}
-	ui.Column(c).Fill().Padding(16).Gap(12).Children(func() {
-		title := "New Match"
-		if e.existing != 0 {
-			title = "Edit Match"
-		}
-		ui.Text(c, title).Bold().FontSize(15).AlignSelf(ui.Center)
+	ui.Column(c).Fill().Children(func() {
 		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Form(c, func() {
-				ui.Field(c, "Label", func() {
-					ui.TextInput(c, &e.label).Placeholder("Optional").Grow(1)
-				}).Description("Friendly name shown in the palette. Leave blank to fall back to the trigger.")
-				ui.Field(c, "Trigger", func() {
-					if ui.TextInput(c, &e.trigger).Bind(&e.triggerIn).Font("monospace").Grow(1).Submitted() {
-						e.save()
-					}
-				}).Description("The keyword that triggers expansion (e.g., :hello)")
-				ui.Field(c, "Source File", func() {
-					if e.addingFile {
-						e.newFileRow(c)
-						return
-					}
-					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-						ui.Select(c, &e.file, e.files()).Label("Source File")
-						ui.Button(c, "+").Label("Create a new source file").Tooltip("Create a new source file").OnClick(func() {
-							e.newFile, e.addingFile = "", true
-							e.newFileIn.Focus()
-						})
+			ui.Column(c).Padding(18, 20).Gap(16).Children(func() {
+				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
+					labeled(c, "Trigger", func() {
+						if ui.TextInput(c, &e.trigger).Bind(&e.triggerIn).Label("Trigger").Placeholder(":hello").Font("monospace").Submitted() {
+							e.save()
+						}
+					}).Grow(1).Basis(0)
+					labeled(c, "Label", func() {
+						ui.TextInput(c, &e.label).Label("Label").Placeholder("Optional — shown in the palette")
+					}).Grow(1.4).Basis(0)
+				})
+				if m, ok := e.conflict(); ok && e.trigger != "" {
+					ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(-8, 0, 0, 0).Children(func() {
+						ui.Icon(c, iconWarning).FontSize(12).TextColor(t.Warning)
+						caption(c, "Another match in "+m.SourceFile+" has this trigger.").Wrap().Shrink(1)
 					})
-				}).Description("The YAML file where this match is stored.")
-				ui.Field(c, "Replacement", func() {
-					ui.TextArea(c, &e.replace).Font("monospace").MinHeight(90).Grow(1)
-				}).Description("The text to insert. Use {{clipboard}} and {{date:format}} for variables.")
-				ui.Field(c, "Enabled", func() { ui.Switch(c, &e.enabled) })
+				} else {
+					caption(c, "Type the trigger anywhere and Sokki replaces it.").Margin(-8, 0, 0, 0)
+				}
+
+				ui.Column(c).Gap(6).Children(func() {
+					ui.Row(c).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, "Replacement").FontSize(12).FontWeight(600)
+						ui.Spacer(c)
+						ui.MenuButton(c, "Insert Variable", func(m *ui.Menu) {
+							for _, v := range variables {
+								if m.Item(v.label).Chosen() {
+									e.replace += v.text
+								}
+							}
+						}).Label("Insert Variable")
+					})
+					ui.TextArea(c, &e.replace).Label("Replacement").Font("monospace").MinHeight(140)
+				})
+				if strings.Contains(e.replace, "{{") {
+					e.preview(c)
+				}
+
+				ui.Row(c).Gap(16).AlignItems(ui.End).Children(func() {
+					labeled(c, "Match File", func() {
+						if e.addingFile {
+							e.newFileRow(c)
+							return
+						}
+						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+							ui.Select(c, &e.file, e.files()).Label("Match File").MinWidth(180)
+							ui.Button(c, "New File…").Label("Create a new match file").OnClick(func() {
+								e.newFile, e.addingFile = "", true
+								e.newFileIn.Focus()
+							})
+						})
+					}).Grow(1)
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(0, 0, 6, 0).Children(func() {
+						ui.Text(c, "Enabled")
+						ui.Switch(c, &e.enabled).Label("Enabled")
+					})
+				})
 			})
 		})
-		ui.Row(c).Gap(8).Children(func() {
-			ui.Button(c, "Cancel").OnClick(e.close)
+		ui.Divider(c)
+		ui.Row(c).Padding(12, 20).Gap(8).AlignItems(ui.Center).Children(func() {
+			hint(c, "⌘↵", "to save")
 			ui.Spacer(c)
-			caption(c, "⌘↵ to save").AlignSelf(ui.Center)
+			ui.Button(c, "Cancel").OnClick(e.close)
 			ui.PrimaryButton(c, "Save").Disabled(!e.canSave()).OnClick(e.save)
 		})
+	})
+}
+
+// preview shows the replacement as it will be typed now.
+func (e *editorWindow) preview(c *ui.Context) {
+	t := c.Theme()
+	if e.previewOf != e.replace {
+		clip, _ := macos.PasteboardString()
+		e.previewOf, e.previewText = e.replace, engine.RenderPreview(e.replace, clip, time.Now())
+	}
+	ui.Column(c).Gap(6).Children(func() {
+		ui.Text(c, "Preview").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+		ui.Text(c, e.previewText).Font("monospace").FontSize(12).Wrap().Selectable().MaxLines(8).Ellipsis("…").
+			Padding(10, 12).Radius(8).Background(t.Text.Alpha(0.04)).Border(0.5, t.Border)
 	})
 }
 
 func (e *editorWindow) newFileRow(c *ui.Context) {
 	ui.Column(c).Gap(4).Children(func() {
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-			in := ui.TextInput(c, &e.newFile).Bind(&e.newFileIn).Placeholder("filename.yml").Grow(1)
+			in := ui.TextInput(c, &e.newFile).Bind(&e.newFileIn).Label("New file name").Placeholder("work.yml").Grow(1)
 			if in.Submitted() {
 				e.commitNewFile()
 			}

@@ -24,6 +24,9 @@ type Store struct {
 	// OnMatchesChanged is called after the matches change, by a load or
 	// an edit.
 	OnMatchesChanged func()
+	// Gen counts the changes of the matches, for views that keep what
+	// they derive from them.
+	Gen uint64
 }
 
 // NewStore makes a store of d, empty until Load.
@@ -55,6 +58,7 @@ func (s *Store) Load() {
 }
 
 func (s *Store) changed() {
+	s.Gen++
 	if s.OnMatchesChanged != nil {
 		s.OnMatchesChanged()
 	}
@@ -70,6 +74,19 @@ func (s *Store) SourceFiles() []string {
 	}
 	slices.Sort(files)
 	return slices.Compact(files)
+}
+
+// FileCounts returns how many matches each match file has.
+func (s *Store) FileCounts() map[string]int {
+	counts := make(map[string]int, len(s.files)+1)
+	for _, m := range s.Matches {
+		f := m.SourceFile
+		if f == "" {
+			f = DefaultMatchFile
+		}
+		counts[f]++
+	}
+	return counts
 }
 
 // Match returns the match with id.
