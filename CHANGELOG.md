@@ -8,122 +8,134 @@ The update window shows the section of the version it offers: every release need
 
 ## Unreleased
 
-- **Settings is redesigned** in the manner of System Settings: a sidebar with every match file and its count, and pages for General, Shortcuts, Privacy and About, their settings in grouped cards with what each does under it.
-- **New settings**: the Recent Activity shortcut and the delay before a trigger that starts a longer one expands, both only in the config file before.
-- **The palette** shows each match's label with its trigger as a key, a preview with its file and length, and the keys it takes along its bottom. Escape clears the search before closing, and ⌘N makes a match of what was typed.
-- **The match editor** puts the trigger and label side by side, inserts variables from a menu, previews the replacement with its variables filled, and warns when another match has the same trigger.
-- **Recent Activity** says in words what happened to each trigger, and has a button to clear it.
-- **The menu bar menu** says whether Sokki is on, pauses and resumes it, opens the palette, a new match and Recent Activity, and keeps reloading, the log and restarting under Troubleshooting.
-- Typing is lighter on the system: Sokki writes its log from a background thread with the file kept open, instead of opening it for every key typed.
+- **Settings** is redesigned like System Settings, with a sidebar of match files and grouped setting cards.
+- New settings for the Recent Activity shortcut and the delay before a shorter trigger expands.
+- The palette shows each match's label, trigger and preview, with its keys along the bottom.
+- In the palette, `Escape` clears the search before closing, and `⌘N` makes a match of what was typed.
+- The palette shows in bold where the search matched, and when the chosen match was last used.
+- The match editor puts trigger and label side by side and previews the replacement with variables filled.
+- The match editor warns when another match has the same trigger.
+- **Insert Variable** in the match editor puts the variable at the caret instead of the end.
+- The match editor asks before throwing away unsaved edits.
+- The match editor and Recent Activity have their own title bars, the editor naming the file it saves to.
+- Recent Activity says in words what happened to each trigger, names the match, and has a Clear button.
+- The menu bar menu shows whether Sokki is on, pauses it, and opens the palette and Recent Activity.
+- Reloading, the log and restarting move to **Troubleshooting** in the menu bar menu.
+- Typing costs the system less: each key takes about half the time it did in Sokki.
 - The matches search also looks in labels.
-- **Matches in Settings** show the chosen match whole beside the list: its replacement, a preview of its variables, whether it is typed or pasted, a switch to turn it off, and buttons to edit, copy and delete it.
-- The palette's preview shows the match's title, trigger and file, and the editor's replacement field grows with its window.
-- The delays and the paste threshold in General show their units.
-- Typing is lighter still: each key typed costs the event tap about half the time it did, with no allocations but its log line, and replacements are typed without making a new event source for every character.
-- **Accessibility access** is asked for where you see it: until it is granted, Settings shows a banner with a button to the right pane of System Settings, and the menu bar menu has a Grant Accessibility Access item.
-- Settings' sidebar ends with Sokki's state (on, paused, paused for a password, or needing access) and a switch to pause it.
-- Variables such as `{{clipboard}}` and `{{date:…}}` show in the accent color in the match list, the match's replacement and the editor, and Insert Variable puts them where the caret is instead of at the end.
-- The palette shows in bold where your search matched each match's title or trigger, and when the chosen match was last used.
-- A match's details say how long it is, whether it is typed or pasted, and when it was last used; typing a trigger now counts as a use, so the palette ranks the matches you type most recently first too.
-- The match editor and Recent Activity draw their own title bars, the editor with what it edits and the file it saves to, and Recent Activity names the match each expansion typed.
+- **Matches** in Settings shows the chosen match beside the list, with buttons to edit, copy and delete.
+- A match's details say how long it is, whether it is typed or pasted, and when it was last used.
+- Typing a trigger counts as a use, so the palette ranks recently typed matches first.
+- The delays and the paste threshold in **General** show their units.
+- Settings and the menu bar menu offer to grant Accessibility access until it is granted.
+- Settings' sidebar ends with Sokki's state and a switch to pause it.
+- Variables such as `{{clipboard}}` and `{{date:…}}` show in the accent color.
 - The welcome on first launch says how to try Sokki and opens Settings.
-- Deleting a match no longer asks first: it goes at once, with Undo in a toast that puts it back where it was.
-- Matches can be duplicated (⌘D, the row's menu, or the button beside the match), and copying a replacement says so.
-- The match editor asks before throwing away unsaved edits when closed with Escape, ⌘W or its close button.
-- A new trigger needs at least two characters, so that a lone `:` can't expand wherever it is typed.
-- ⌘N, ⌘F and ⌘D on the Matches page work wherever the focus is, the sidebar too, not only in the list.
+- Deleting a match no longer asks first, and a toast offers Undo.
+- Duplicate a match with `⌘D`, the row's menu, or the button beside the match.
+- Copying a replacement says so.
+- A new trigger needs at least two characters, so a lone `:` can't expand.
+- `⌘N`, `⌘F` and `⌘D` on the Matches page work wherever the focus is, the sidebar too.
 - A match file in the sidebar has a menu to add a match to it or show it in Finder.
-- The Matches page loses its row of key hints, which doubled the match's buttons; a match file's error shows there with a button to open the config folder.
-- Settings no longer redraws while it is hidden each time a trigger expands.
+- A match file's error shows on the Matches page with a button to open the config folder.
 
 ## 0.1.1
 
-- **AI matches are removed**, with the AI tab of Settings and the Match editor's "AI prompt" toggle. A match file that still has a `prompt:` match fails to load until the match is deleted or turned into a `replace:`; the `ai:` table of `config/default.yml` is ignored.
+- AI matches are removed, with the AI tab of Settings and the editor's **AI prompt** toggle.
+- A match file with a `prompt:` match fails to load until it is deleted or turned into a `replace:`.
 
 ## 0.1.0
 
-- **Sokki is rewritten in Go**, its windows drawn by MyGo's native UI. Every feature stays, and so do your matches and settings in `~/.config/sokki`.
-- **Updates** now come from GitHub releases, with smaller delta updates and a new update window. Sokki 0.0.16 does not update to this version by itself: download it once from the releases page and replace the app in Applications; the Accessibility permission should carry over.
-- **Palette** no longer makes Sokki the active app while it shows: the app you were typing in keeps the front, and the chosen match is typed into it without switching back.
-- **Recent Activity**, **Settings** and the **Match editor** are redrawn; the editor is now a window of its own, from Settings, the palette (⌘↵) and the HUD alike. ⌘↵ saves it.
-- `{{date:…}}` also takes strftime formats such as `%Y-%m-%d`, beside the Unicode patterns such as `yyyy-MM-dd`.
-- Fix: editing a match in Settings no longer loses the edit when the match files reload meanwhile.
-- Crash reports now cover crashes of the app itself, which leave a crash log that is sent at the next launch (when crash reports are on).
-
+- Sokki is rewritten in Go, keeping every feature and your matches and settings in `~/.config/sokki`.
+- Updates come from GitHub releases, as smaller delta updates, with a new update window.
+- Sokki 0.0.16 doesn't update to this version by itself: download it once from the releases page.
+- The palette leaves the app you were typing in at the front and types the chosen match into it.
+- Recent Activity, Settings and the match editor are redrawn.
+- The match editor is a window of its own, opened from Settings, the palette (`⌘↵`) and the HUD.
+- `⌘↵` saves the match editor.
+- `{{date:…}}` also takes strftime formats such as `%Y-%m-%d`.
+- Editing a match in Settings no longer loses the edit when the match files reload.
+- Crash reports also cover crashes of the app itself, sent at the next launch.
 
 ## 0.0.16 - 2026-06-29
-- Fix: the config-file watcher no longer reacts to Sokki's own log writes. Because the log lives inside the watched config directory, every always-on trace line was retriggering a config reload — which wrote more trace lines — a self-sustaining loop that spammed the log and needlessly reloaded config several times a second. The watcher now ignores filesystem events that only touch the `logs/` directory.
 
+- Fix the config reloading several times a second and filling the log.
 
 ## 0.0.15 - 2026-06-29
-- Fix: if macOS disabled Sokki's event tap (e.g. after a slow event or certain user input), the app silently stopped capturing keystrokes until relaunch. The tap now automatically re-arms itself when this happens.
-- **Expansion diagnostics**: an always-on trace log (independent of the configured log level) records the keystroke-by-keystroke decision path — buffer tail, matcher state, why a pending match was dropped, and the loaded trigger snapshot — so non-expansions can be diagnosed from the log alone. This also closes a privacy leak where password-field keystrokes could reach the log: per-key tracing now runs only after the secure-input gate, and secure transitions log without the character.
 
+- Fix Sokki no longer expanding until relaunch after macOS disabled its event tap.
+- The log records why each trigger did or didn't expand.
+- Keys typed in password fields no longer reach the log.
 
 ## 0.0.14 - 2026-04-29
-- Fix: pressing ⌘, in the **command palette** now brings the Settings window to the front instead of leaving it hidden behind the previously focused app.
-- **Release pipeline** now structurally verifies every packaged build (framework presence, rpath resolution, SwiftPM resource bundles, codesign) and launch-smokes the stapled app before distribution, auto-copying any missing SwiftPM resource bundles so new dependencies cannot silently ship a broken binary.
-- **Trigger conflicts** between a shorter trigger and one that extends it are now resolved automatically: the shorter trigger fires after a brief idle pause (default 400 ms, configurable via `conflict_resolve_delay_ms`), and pending matches are cancelled on mouse clicks, app switches, or palette activation, removing the previous in-app conflict warnings in favour of correct expansion.
 
+- `⌘,` in the palette brings Settings to the front again.
+- A trigger that a longer one extends now fires after a brief pause (`conflict_resolve_delay_ms`, 400 ms).
+- Clicks, app switches and opening the palette cancel a pending trigger.
 
 ## 0.0.13 - 2026-04-24
-- Refreshed the bundled Sokki logo preview and clarified the icon-source workflow in the release-infrastructure design doc (`AppIcon.icns` is canonical; the PNG is a regenerated preview).
 
+- Refresh the Sokki logo.
 
 ## 0.0.12 - 2026-04-24
-- **Match list** search field now supports full keyboard navigation: arrow keys move selection while typing, Return opens the selected match, Esc clears the query (or defocuses to the list when empty), and the selected row auto-scrolls into view.
 
+- In the match list search, arrow keys move the selection, `Return` opens the match, and `Esc` clears.
 
 ## 0.0.11 - 2026-04-24
-- Fix release problem
 
+- Fix a broken release.
 
 ## 0.0.10 - 2026-04-24
-- **AI settings** now explains upfront that AI features are powered by your locally-installed Claude Code CLI.
-- Default log level is now `debug` instead of `error`, and routine AI / palette / Claude-binary messages no longer surface as errors — the log file stays useful without drowning in false alarms.
-- **Match list** and **Match editor** now flag trigger conflicts inline: a warning icon and tooltip mark duplicates (red) and triggers shadowed by longer ones (orange), and the editor warns live as you type a trigger that collides with or extends another match.
-- **AI settings** gains a "Test connection" button that runs a round-trip `claude` call and shows the resolved binary, model, reply, or a categorised failure reason; the same button cancels an in-flight test, and closing the Settings window aborts it cleanly. Default model for fresh configs is now `sonnet` (existing `model` values are respected).
-- **Settings** now supports keyboard shortcuts: ⌘1–⌘4 switch tabs, ⌘F focuses the match list search field, ⌘N adds a new match, and ⌘, opens Settings directly from the command palette.
 
+- **AI** settings explains that AI features use your local Claude Code CLI.
+- **AI** settings has a **Test connection** button, and new configs default to the `sonnet` model.
+- The default log level is `debug`, and routine messages no longer show as errors.
+- The match list and editor flag duplicate and shadowed triggers.
+- `⌘1`–`⌘4` switch Settings tabs, `⌘F` focuses the search, and `⌘N` adds a match.
+- `⌘,` opens Settings from the palette.
 
 ## 0.0.9 - 2026-04-23
-- AI matches now use a top-level `prompt:` template with `{{selection}}` / `{{clipboard}}` placeholders (and `{{s|c}}` fallback) instead of the old `ai:` block. The **Match editor** gained an "AI prompt" toggle to author them without touching YAML; legacy `ai:` entries are flagged on load with a migration hint.
-- After granting Accessibility permission, Sokki now prompts with a "Quit & Reopen" alert so the event tap can start without a manual restart. Also added a permanent **Quit & Reopen** entry to the menu bar for other cases (permission revoked while running, stale TCC, etc).
-- Match editor's **Source File** field now supports creating a new file inline: click the "+" button next to the picker, type a filename (`.yml` is appended automatically), and the new YAML file is written under `~/.config/sokki/match/` on Save. Typing an existing name (case-insensitive, including cross-extension `foo.yml` ≡ `foo.yaml`) silently selects it.
-- Fix: app icon no longer shows a white border in the Dock / Finder. The bundled `AppIcon.icns` had opaque white padding around the squircle; regenerated with transparent corners.
-- **Settings match list** now shows a blue `AI · <input>` capsule next to AI-backed matches, matching the command palette's badge.
-- Trimmed the starter **match/default.yml** seeded on first launch: removed the two AI-rewrite examples so fresh installs don't reference the `claude` CLI before users opt in.
-- Trigger matching is now resilient to in-flight corrections: fix a typo with ⌫ and keep typing, and the expansion still fires when the visible text ends with a trigger. ⌥⌫ / ⌘⌫ / arrow keys / Home / End / PageUp / PageDown safely invalidate the in-progress buffer.
-- **AI prompts** with chained placeholders like `{{s|c}}` now fall back to the clipboard when no text is selected, instead of aborting with a "no selection" error. Prompts that require selection (`{{s}}` alone) still fail loudly as before.
-- New **AI** tab in Settings for configuring the model, Claude binary path, timeouts, and an animated inline loading indicator while a prompt runs (choose Static, Braille spinner, or Block sweep).
 
+- AI matches use a top-level `prompt:` with `{{selection}}` and `{{clipboard}}` instead of `ai:`.
+- The match editor's **AI prompt** toggle makes AI matches without editing YAML.
+- AI prompts with `{{s|c}}` fall back to the clipboard when nothing is selected.
+- A new **AI** tab in Settings sets the model, the Claude binary, timeouts and the loading indicator.
+- After granting Accessibility, Sokki offers to quit and reopen, and the menu bar has **Quit & Reopen**.
+- The match editor's **Source File** has a `+` button to make a new match file.
+- The app icon no longer has a white border in the Dock and Finder.
+- The Settings match list shows an `AI · <input>` badge on AI matches.
+- The starter `match/default.yml` no longer has AI examples.
+- Fix a typo with `⌫` and keep typing, and the trigger still expands.
 
 ## 0.0.8 - 2026-04-22
-- New **Privacy** tab in Settings. Opt-out anonymous crash-report upload and daily DAU ping (both default ON) to a self-hosted worker at `telemetry.sorrycc.dev`. No personal data, keystrokes, match text, or clipboard contents are sent.
 
+- A new **Privacy** tab turns off the anonymous crash reports and daily ping, both on by default.
 
 ## 0.0.7 - 2026-04-22
-- Auto-update feed moved to the custom domain `download.sorrycc.dev`, served by a shared Cloudflare Worker (repo: `sorrycc/downloads-worker`). The original `r2.dev` host stays enabled as a fallback for existing installs.
-- Fix: "Check for Updates…" from the menu bar now brings Sokki to the foreground so the Sparkle update window is key and frontmost (no extra click needed).
 
+- **Check for Updates…** in the menu bar brings the update window to the front.
 
 ## 0.0.6 - 2026-04-22
-- Added AI rewrite triggers: matches can define an `ai:` block that runs the local `claude` CLI and replaces the trigger or selection with the result. Invoke by typing the trigger or by committing from the palette (recommended for `input: selection`).
 
+- Matches with an `ai:` block rewrite the trigger or selection with the local `claude` CLI.
 
 ## 0.0.5 - 2026-04-20
-- Show source file per row and in the editor; filter by file; search triggers and replacements; delete selection with the Delete or Backspace key.
-- Added a Spotlight-style trigger palette for fuzzy-searching and running matches from a floating input.
-- Default the toggle and palette shortcuts to none so new users don't trigger them accidentally.
+
+- The match list shows each match's file, filters by file, and searches triggers and replacements.
+- `⌫` deletes the selected matches in the match list.
+- A Spotlight-style palette fuzzy-searches matches and runs them.
+- The toggle and palette shortcuts default to none.
 
 ## 0.0.4 - 2026-04-19
-- Fixed settings window activation on macOS Tahoe.
-- Cleaned up YAML serialization for matches and config.
+
+- Fix Settings not activating on macOS Tahoe.
 
 ## 0.0.3 - 2026-04-19
-- Redesigned the menu-bar icon as a keycap with a tab glyph for better recognizability.
-- Keep the app alive when the settings window is closed.
+
+- The menu bar icon is a keycap with a tab glyph.
+- Closing Settings keeps Sokki running.
 
 ## 0.0.2 - 2026-04-19
-- Sparkle-based automatic updates. Future releases will auto-install with signature verification; this one requires a manual download.
-- "Check for Updates…" menu-bar item and Settings toggle for automatic update checks.
+
+- Sokki updates itself, and this version needs a manual download.
+- **Check for Updates…** in the menu bar, and a Settings switch for automatic checks.

@@ -34,8 +34,7 @@ go tool mygo build       # build/darwin-arm64/Sokki.app + .dmg, ad hoc signed
 - Windows hide instead of closing via `app.hideOnClose`, which lets `App.Quit` through.
 - Never log typed characters before the secure-input check in `engine.Context.Feed`.
 - Keep the `~/.config/sokki` file format compatible.
-- Add a line for every user-facing change under `## Unreleased` in `CHANGELOG.md`.
-- Commit style: `type: short summary` (`fix:`, `feat:`, `docs:`, `chore:`).
+- Commits and changelog entries follow [AGENTS.md](AGENTS.md).
 
 ## Release
 
@@ -45,3 +44,5 @@ which signs, notarizes and publishes to `sorrycc/Sokki`, the same repo. See `CON
 ## Search scope
 
 Gitignored dirs to skip: `build/`, `.mygo/`, `.build/`, `Sokki.app/`, `tmp/`.
+
+@AGENTS.md
