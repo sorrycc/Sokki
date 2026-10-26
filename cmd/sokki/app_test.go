@@ -4,16 +4,19 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"sokki/internal/cloudsync"
 	"sokki/internal/config"
 	"sokki/internal/expander"
 	"sokki/internal/logx"
 	"sokki/internal/model"
+	"sokki/internal/mon"
 	"sokki/internal/prefs"
 	"sokki/internal/telemetry"
 )
@@ -35,6 +38,7 @@ func testApp(t testing.TB) *app {
 	a.editor = &editorWindow{a: a, headless: true}
 	a.palette = newPalette(a)
 	a.hud = newHUDPanel(a)
+	a.cloud = newCloud(a)
 	a.store.Load()
 	return a
 }
@@ -189,6 +193,10 @@ func TestSettingsPages(t *testing.T) {
 	}
 	shot(t, tt, "shortcuts")
 	tt.Key(ui.Cmd, ui.Key4)
+	if !tt.HasText("Sign in to sync") {
+		t.Fatalf("Account: %q", tt.Texts())
+	}
+	tt.Key(ui.Cmd, ui.Key5)
 	if !tt.HasText("Telemetry is off in this build") {
 		t.Fatalf("Privacy: %q", tt.Texts())
 	}
@@ -198,7 +206,7 @@ func TestSettingsPages(t *testing.T) {
 		t.Fatalf("Privacy: %q", tt.Texts())
 	}
 	shot(t, tt, "privacy")
-	tt.Key(ui.Cmd, ui.Key5)
+	tt.Key(ui.Cmd, ui.Key6)
 	if !tt.HasText("Sokki") || !tt.HasText("Release Notes") {
 		t.Fatalf("About: %q", tt.Texts())
 	}
@@ -508,5 +516,78 @@ func TestEditorRefusesOneCharacterTrigger(t *testing.T) {
 	e.trigger = ";x"
 	if !e.canSave() {
 		t.Fatal("refuses two characters")
+	}
+}
+
+func TestAccountPage(t *testing.T) {
+	a := testApp(t)
+	a.settings.setPage(accountPage)
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	if !tt.HasText("Sign In…") {
+		t.Fatalf("no Sign In: %q", tt.Texts())
+	}
+	shot(t, tt, "account-signed-out")
+
+	cl := a.cloud
+	cl.signin = &signin{cancel: func() {}, code: "WXYZ-2345", url: "https://mon.sorrycc.dev/device"}
+	tt.Frame()
+	if !tt.HasText("WXYZ-2345") {
+		t.Fatalf("no code: %q", tt.Texts())
+	}
+	shot(t, tt, "account-signing-in")
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatal(err)
+	}
+	if cl.signin != nil {
+		t.Fatal("not cancelled")
+	}
+
+	if err := cl.engine.SignedIn(&mon.User{ID: "u1", Name: "Ada Lovelace", Email: "ada@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	cl.client.Token = "mon_test"
+	tt.Frame()
+	for _, want := range []string{"Ada Lovelace", "ada@example.com", "Sync Now", "Not synced yet", "Sign Out…"} {
+		if !tt.HasText(want) {
+			t.Fatalf("no %q in %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "account-signed-in")
+}
+
+func TestSyncAppliesToTheFiles(t *testing.T) {
+	a := testApp(t)
+	go func() {
+		for fn := range a.mainQueue {
+			fn()
+		}
+	}()
+	l := cloudLocal{a.cloud}
+	read, err := l.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !l.IsDefault(read) {
+		t.Error("the starter matches are not the default")
+	}
+	s := read
+	s.Matches = append(slices.Clone(read.Matches), cloudsync.Match{File: "work.yml", Trigger: ":addr", Replace: "1 Main St", Enabled: true})
+	s.Matches[0].Replace = "Hello from the account"
+	if err := l.Apply(read, s); err != nil {
+		t.Fatal(err)
+	}
+	got, err := l.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(s) {
+		t.Fatalf("files = %+v, want %+v", got.Matches, s.Matches)
+	}
+	if _, err := os.Stat(filepath.Join(a.dir.MatchDir(), "work.yml")); err != nil {
+		t.Error(err)
+	}
+	// What was read is no longer: applying it again changes nothing.
+	if err := l.Apply(read, read); err != cloudsync.ErrStale {
+		t.Errorf("err = %v, want ErrStale", err)
 	}
 }

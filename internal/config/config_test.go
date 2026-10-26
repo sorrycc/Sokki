@@ -141,3 +141,23 @@ func TestStoreInsertRestores(t *testing.T) {
 		t.Fatal("duplicate ID")
 	}
 }
+
+func TestIsStarter(t *testing.T) {
+	d := tempDir(t)
+	if _, err := d.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	r := d.Load()
+	if !IsStarter(r.Config, r.Matches) {
+		t.Fatalf("the starter files are not: %+v", r.Matches)
+	}
+	r.Matches[0].Replace = "Hello!"
+	if IsStarter(r.Config, r.Matches) {
+		t.Error("an edited match is the starter")
+	}
+	c := model.DefaultConfig()
+	c.InjectDelay = 5
+	if IsStarter(c, nil) {
+		t.Error("a changed config is the starter")
+	}
+}

@@ -34,6 +34,7 @@ var (
 	iconKeyboard = svgIcon("keyboard")
 	iconPrivacy  = svgIcon("shield-check")
 	iconAbout    = svgIcon("info")
+	iconCloud    = svgIcon("cloud")
 	iconHistory  = svgIcon("history")
 	iconMatched  = svgIcon("circle-check")
 	iconPaused   = svgIcon("circle-pause")

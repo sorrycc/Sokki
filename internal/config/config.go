@@ -260,3 +260,25 @@ func (d Dir) Bootstrap() (bool, error) {
 	}
 	return true, nil
 }
+
+// IsStarter reports whether c and matches are what a first launch has:
+// the starter files of Bootstrap, or no matches at all.
+func IsStarter(c model.Config, matches []model.Match) bool {
+	if c != model.DefaultConfig() {
+		return false
+	}
+	if len(matches) == 0 {
+		return true
+	}
+	var f model.MatchFile
+	if err := yaml.Unmarshal([]byte(defaultMatchesYAML), &f); err != nil || len(f.Matches) != len(matches) {
+		return false
+	}
+	for i, m := range f.Matches {
+		got := matches[i]
+		if got.SourceFile != DefaultMatchFile || got.Trigger != m.Trigger || got.Replace != m.Replace || got.Label != m.Label || got.Enabled != m.Enabled {
+			return false
+		}
+	}
+	return true
+}

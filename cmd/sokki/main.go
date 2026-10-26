@@ -46,6 +46,9 @@ type app struct {
 	editor   *editorWindow
 	palette  *palette
 	hud      *hudPanel
+	// cloud syncs the configuration and matches with the person's
+	// account.
+	cloud *cloud
 
 	// leases counts the windows that need Sokki to be a regular app, with
 	// a Dock icon, so that macOS lets them come to the front and take the
@@ -149,10 +152,13 @@ func (a *app) ready() {
 	a.palette = newPalette(a)
 	a.hud = newHUDPanel(a)
 
+	a.cloud = newCloud(a)
+
 	a.setUpTray()
 	a.store.Load()
 	a.applyConfig()
 	a.watchConfig()
+	a.cloud.start()
 
 	// Typing in another app starts afresh; leaving one drops a match held
 	// for a longer trigger.
@@ -185,6 +191,7 @@ func (a *app) ready() {
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.quitting = true })
 	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
 		a.exp.Stop()
+		a.cloud.flush()
 		a.recency.Flush()
 		if a.tray != nil {
 			a.tray.Destroy()
@@ -216,6 +223,7 @@ func (a *app) reloadConfig() {
 	a.store.Load()
 	a.applyConfig()
 	a.settings.invalidate()
+	a.cloud.changed()
 	logx.Debugf("Config reloaded")
 }
 
@@ -227,7 +235,7 @@ func (a *app) saveConfig() {
 
 // watchConfig reloads the configuration as its files change, apart from
 // the log's, which Sokki writes itself: reloading on them wrote more log,
-// in a loop.
+// in a loop. Settings sync's own files are left out too.
 func (a *app) watchConfig() {
 	w, err := mygo.WatchFiles(context.Background(), string(a.dir), mygo.FileWatchOptions{
 		Recursive: true,
@@ -250,7 +258,9 @@ func (a *app) watchConfig() {
 			}
 			relevant := false
 			for _, e := range events {
-				if !strings.HasPrefix(e.Path, "logs/") && e.Path != "logs" && !strings.HasPrefix(path.Base(e.Path), ".sokki-") {
+				base := path.Base(e.Path)
+				if !strings.HasPrefix(e.Path, "logs/") && e.Path != "logs" && !strings.HasPrefix(base, ".sokki-") &&
+					!strings.HasPrefix(base, syncFile) && base != tokenKey {
 					relevant = true
 				}
 			}

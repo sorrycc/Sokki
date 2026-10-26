@@ -85,6 +85,16 @@ func (a *app) trayMenu() *mygo.Menu {
 		&mygo.MenuItem{Label: "New Match…", Click: click(func() { a.settings.matches.newMatch("") })},
 		&mygo.MenuItem{Label: "Recent Activity", Click: click(a.hud.toggle)},
 		mygo.Separator(),
+	)
+	if name := a.cloud.account(); name != "" {
+		items = append(items,
+			&mygo.MenuItem{Label: "Syncing as " + name, Disabled: true},
+			&mygo.MenuItem{Label: "Sync Now", Click: click(a.syncNow)},
+		)
+	} else if a.cloud != nil {
+		items = append(items, &mygo.MenuItem{Label: "Sign In to Sync…", Click: click(a.signIn)})
+	}
+	items = append(items,
 		&mygo.MenuItem{Label: "Settings…", Accelerator: "Cmd+,", Click: click(a.openSettings)},
 	)
 	if mygo.Updater.Enabled() {

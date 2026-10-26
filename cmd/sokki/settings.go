@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
@@ -22,6 +23,7 @@ const (
 	filePage      = "file:"
 	generalPage   = "general"
 	shortcutsPage = "shortcuts"
+	accountPage   = "account"
 	privacyPage   = "privacy"
 	aboutPage     = "about"
 )
@@ -30,7 +32,7 @@ const (
 const sidebarWidth = 210
 
 // settingsWindow is the Settings window: the matches, general settings,
-// shortcuts, privacy and about. It is made the first time it shows, and
+// shortcuts, the account, privacy and about. It is made the first time it shows, and
 // hides rather than closes.
 type settingsWindow struct {
 	a    *app
@@ -41,6 +43,7 @@ type settingsWindow struct {
 
 	filesShown   bool
 	confirmReset bool
+	confirmOut   bool
 	// atLogin is whether Sokki opens at login, read as Settings shows.
 	atLogin bool
 }
@@ -79,6 +82,7 @@ func (s *settingsWindow) show() {
 		s.a.acquire()
 	}
 	s.atLogin = mygo.App.OpenAtLogin()
+	s.a.cloud.pull()
 	s.win.Show()
 	s.win.Focus()
 	s.win.Invalidate() // it skipped what changed while hidden
@@ -110,7 +114,7 @@ func (s *settingsWindow) setPage(page string) {
 
 func (s *settingsWindow) view(c *ui.Context) {
 	t := c.Theme()
-	pages := []string{matchesPage, generalPage, shortcutsPage, privacyPage, aboutPage}
+	pages := []string{matchesPage, generalPage, shortcutsPage, accountPage, privacyPage, aboutPage}
 	for i, p := range pages {
 		c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { s.setPage(p) })
 	}
@@ -139,6 +143,8 @@ func (s *settingsWindow) view(c *ui.Context) {
 				s.general(c)
 			case s.page == shortcutsPage:
 				s.shortcuts(c)
+			case s.page == accountPage:
+				s.account(c)
 			case s.page == privacyPage:
 				s.privacy(c)
 			default:
@@ -175,6 +181,7 @@ func (s *settingsWindow) sidebar(c *ui.Context) {
 		ui.SidebarSection(c, "Settings", nil, func() {
 			ui.SidebarItem(c, generalPage, iconGeneral, "General")
 			ui.SidebarItem(c, shortcutsPage, iconKeyboard, "Shortcuts")
+			ui.SidebarItem(c, accountPage, iconCloud, "Account")
 			ui.SidebarItem(c, privacyPage, iconPrivacy, "Privacy")
 			ui.SidebarItem(c, aboutPage, iconAbout, "About")
 		})
@@ -414,6 +421,128 @@ func truncate(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+func (s *settingsWindow) account(c *ui.Context) {
+	cl := s.a.cloud
+	scrollPage(c, "Account", "Sync your matches and settings between your Macs.", func() {
+		if cl == nil {
+			return
+		}
+		switch {
+		case cl.signin != nil:
+			s.signingIn(c, cl.signin)
+		case cl.signedIn():
+			s.signedIn(c, cl)
+		default:
+			group(c, "", func() {
+				setting(c, "Sign in to sync", "Use your "+monHost()+" account, with GitHub or Google.", true, func() {
+					if ui.PrimaryButton(c, "Sign In…").Clicked() {
+						cl.signIn()
+					}
+				})
+			})
+		}
+		if cl.notice != "" {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).PaddingX(4).Children(func() {
+				ui.Icon(c, iconAbout).FontSize(12).TextColor(c.Theme().TextMuted)
+				caption(c, cl.notice).Wrap().Shrink(1)
+			})
+		}
+		caption(c, "What syncs: config/default.yml and every file of match/. Recent use, logs and the Privacy "+
+			"switches stay on this Mac. A match changed on two Macs keeps the one that synced last.").Wrap().PaddingX(4)
+	})
+	if ui.AlertDialog(c, &s.confirmOut, "Sign out of sync?",
+		"Your matches stay on this Mac and in your account. This Mac stops syncing them.",
+		"Cancel", "Sign Out") == 1 {
+		cl.signOut()
+	}
+}
+
+// signingIn shows the code of a sign-in waiting for its approval in the
+// browser.
+func (s *settingsWindow) signingIn(c *ui.Context, si *signin) {
+	group(c, "", func() {
+		detail := "Getting a code…"
+		if si.code != "" {
+			detail = "Check that the browser shows this code, then approve it."
+		}
+		setting(c, "Waiting for approval", detail, true, func() {
+			if si.code == "" {
+				ui.Spinner(c)
+				return
+			}
+			ui.Text(c, si.code).Font("monospace").FontSize(18).FontWeight(600).Selectable()
+		})
+		setting(c, "Didn't see the browser?", "Open the page to approve the code again.", false, func() {
+			if si.url != "" && ui.Button(c, "Open Browser").Clicked() {
+				mygo.Shell.OpenExternal(si.url)
+			}
+			if ui.Button(c, "Cancel").Clicked() {
+				s.a.cloud.cancelSignIn()
+			}
+		})
+	})
+}
+
+// signedIn shows the account, and how its sync goes.
+func (s *settingsWindow) signedIn(c *ui.Context, cl *cloud) {
+	t := c.Theme()
+	st := cl.engine.State()
+	name := cl.account()
+	group(c, "", func() {
+		ui.Row(c).Padding(12, 14).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Avatar(c, name, cl.picture()).FontSize(18)
+			ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+				ui.Text(c, name).FontWeight(600).SingleLine()
+				if st.Email != "" && st.Email != name {
+					caption(c, st.Email).SingleLine()
+				}
+			})
+			if ui.Button(c, "Sign Out…").Clicked() {
+				s.confirmOut = true
+			}
+		})
+	})
+	group(c, "Sync", func() {
+		status := "Not synced yet"
+		switch {
+		case cl.busy > 0:
+			status = "Syncing…"
+		case cl.failure != "":
+			status = cl.failure + " Trying again " + until(cl.retryAt, time.Now()) + "."
+		case !st.SyncedAt.IsZero():
+			status = "Synced " + ago(st.SyncedAt, time.Now())
+		}
+		setting(c, "Matches and settings", status, true, func() {
+			if cl.failure != "" {
+				ui.Icon(c, iconWarning).FontSize(14).TextColor(t.Warning)
+			}
+			if cl.busy > 0 {
+				ui.Spinner(c)
+			}
+			if ui.Button(c, "Sync Now").Disabled(cl.busy > 0).Clicked() {
+				s.a.syncNow()
+			}
+		})
+		setting(c, "Manage account", "See the Macs signed in, and sign them out.", false, func() {
+			if ui.Button(c, "Open "+monHost()).Clicked() {
+				mygo.Shell.OpenExternal(monURL())
+			}
+		})
+	})
+}
+
+// until says how soon t is, as "in 2 minutes".
+func until(t, now time.Time) string {
+	d := t.Sub(now)
+	switch {
+	case d < time.Second:
+		return "now"
+	case d < time.Minute:
+		return "in " + plural(int(d/time.Second), "second", "seconds")
+	}
+	return "in " + plural(int((d+time.Minute-1)/time.Minute), "minute", "minutes")
+}
+
 func (s *settingsWindow) privacy(c *ui.Context) {
 	scrollPage(c, "Privacy", "What Sokki sends, and what it never does.", func() {
 		if s.a.telemetry == nil {
@@ -459,7 +588,7 @@ func (s *settingsWindow) never(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Gap(10).Padding(12, 14).Radius(10).Background(t.Success.Alpha(0.1)).AlignItems(ui.Start).Children(func() {
 		ui.Icon(c, iconPrivacy).FontSize(16).TextColor(t.Success)
-		ui.Text(c, "Sokki never sends what you type, your matches or your clipboard. What it sends is kept on Cloudflare under our account and deleted after a year.").
+		ui.Text(c, "Sokki never sends what you type or your clipboard. Your matches leave this Mac only for your own account, once you sign in to sync them. Reports and pings are kept on Cloudflare under our account and deleted after a year.").
 			FontSize(12).Wrap().Shrink(1)
 	})
 }

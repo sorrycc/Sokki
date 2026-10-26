@@ -6,12 +6,14 @@ no cgo: macOS APIs MyGo lacks are called through purego. arm64 only.
 ## Layout
 
 - `cmd/sokki/` — the app (package main): `main.go` startup + wiring, `tray.go` menu bar item, `settings.go` +
-  `matches.go` Settings, `editor.go` match editor, `palette.go` palette panel, `hud.go` Recent Activity panel,
-  `style.go` shared look (icons from `icons/`, keycaps, setting cards), `app_test.go` headless UI tests
+  `matches.go` Settings, `account.go` sign-in and settings sync, `editor.go` match editor, `palette.go` palette
+  panel, `hud.go` Recent Activity panel, `style.go` shared look (icons from `icons/`, keycaps, setting cards), `app_test.go` headless UI tests
   (`SOKKI_SHOTS=dir go test ./cmd/sokki` saves screenshots)
 - `internal/macos/` — purego bindings: event tap, synthesized keys, Accessibility, secure input, workspace, pasteboard
 - `internal/engine/` — trigger trie, buffer, undo, the tap's state machine (`Context`), variables/dates, fuzzy score
 - `internal/expander/` — the running engine: tap handler, injector
+- `internal/mon/` — client of Mon (mon.sorrycc.dev), a copy of Mayoi's; `internal/cloudsync/` — merges the config and
+  matches with the account
 - `internal/model/`, `internal/config/`, `internal/prefs/`, `internal/telemetry/`, `internal/logx/`
 - `docs/designs/` — dated design specs (`YYYY-MM-DD-<slug>.md`); start with `2026-10-16-mygo-rewrite.md`
 - `resources/` — bundled into the app (`icon.png`; CI writes the gitignored `telemetry.json`)

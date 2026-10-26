@@ -8,6 +8,9 @@ The update window shows the section of the version it offers: every release need
 
 ## Unreleased
 
+- **Settings → Account** signs in to your mon.sorrycc.dev account to sync matches and settings between Macs.
+- Synced Macs merge each match on its own, so edits to different matches on two Macs both stay.
+- The menu bar menu has **Sign In to Sync…**, and **Sync Now** once signed in.
 - **Settings** is redesigned like System Settings, with a sidebar of match files and grouped setting cards.
 - New settings for the Recent Activity shortcut and the delay before a shorter trigger expands.
 - The palette shows each match's label, trigger and preview, with its keys along the bottom.
