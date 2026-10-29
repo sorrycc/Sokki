@@ -22,6 +22,7 @@ const (
 	matchesPage   = "matches"
 	filePage      = "file:"
 	generalPage   = "general"
+	insightsPage  = "insights"
 	shortcutsPage = "shortcuts"
 	accountPage   = "account"
 	privacyPage   = "privacy"
@@ -32,7 +33,7 @@ const (
 const sidebarWidth = 210
 
 // settingsWindow is the Settings window: the matches, general settings,
-// shortcuts, the account, privacy and about. It is made the first time it shows, and
+// insights, shortcuts, the account, privacy and about. It is made the first time it shows, and
 // hides rather than closes.
 type settingsWindow struct {
 	a    *app
@@ -43,6 +44,8 @@ type settingsWindow struct {
 
 	filesShown   bool
 	confirmReset bool
+	confirmClear bool
+	unusedShown  bool
 	confirmOut   bool
 	// atLogin is whether Sokki opens at login, read as Settings shows.
 	atLogin bool
@@ -114,7 +117,7 @@ func (s *settingsWindow) setPage(page string) {
 
 func (s *settingsWindow) view(c *ui.Context) {
 	t := c.Theme()
-	pages := []string{matchesPage, generalPage, shortcutsPage, accountPage, privacyPage, aboutPage}
+	pages := []string{matchesPage, generalPage, insightsPage, shortcutsPage, accountPage, privacyPage, aboutPage}
 	for i, p := range pages {
 		c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { s.setPage(p) })
 	}
@@ -141,6 +144,8 @@ func (s *settingsWindow) view(c *ui.Context) {
 				s.matches.view(c)
 			case s.page == generalPage:
 				s.general(c)
+			case s.page == insightsPage:
+				s.insights(c)
 			case s.page == shortcutsPage:
 				s.shortcuts(c)
 			case s.page == accountPage:
@@ -180,6 +185,7 @@ func (s *settingsWindow) sidebar(c *ui.Context) {
 		})
 		ui.SidebarSection(c, "Settings", nil, func() {
 			ui.SidebarItem(c, generalPage, iconGeneral, "General")
+			ui.SidebarItem(c, insightsPage, iconInsights, "Insights")
 			ui.SidebarItem(c, shortcutsPage, iconKeyboard, "Shortcuts")
 			ui.SidebarItem(c, accountPage, iconCloud, "Account")
 			ui.SidebarItem(c, privacyPage, iconPrivacy, "Privacy")
@@ -447,7 +453,7 @@ func (s *settingsWindow) account(c *ui.Context) {
 				caption(c, cl.notice).Wrap().Shrink(1)
 			})
 		}
-		caption(c, "What syncs: config/default.yml and every file of match/. Recent use, logs and the Privacy "+
+		caption(c, "What syncs: config/default.yml and every file of match/. Recent use, Insights, logs and the Privacy "+
 			"switches stay on this Mac. A match changed on two Macs keeps the one that synced last.").Wrap().PaddingX(4)
 	})
 	if ui.AlertDialog(c, &s.confirmOut, "Sign out of sync?",
@@ -588,7 +594,7 @@ func (s *settingsWindow) never(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Gap(10).Padding(12, 14).Radius(10).Background(t.Success.Alpha(0.1)).AlignItems(ui.Start).Children(func() {
 		ui.Icon(c, iconPrivacy).FontSize(16).TextColor(t.Success)
-		ui.Text(c, "Sokki never sends what you type or your clipboard. Your matches leave this Mac only for your own account, once you sign in to sync them. Reports and pings are kept on Cloudflare under our account and deleted after a year.").
+		ui.Text(c, "Sokki never sends what you type or your clipboard. Your matches leave this Mac only for your own account, once you sign in to sync them, and Insights stays on this Mac. Reports and pings are kept on Cloudflare under our account and deleted after a year.").
 			FontSize(12).Wrap().Shrink(1)
 	})
 }

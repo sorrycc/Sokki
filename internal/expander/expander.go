@@ -7,6 +7,7 @@ package expander
 import (
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"sokki/internal/engine"
 	"sokki/internal/logx"
@@ -22,6 +23,9 @@ type Handlers struct {
 	HUDRequested       func()
 	HUDEvent           func(ev model.HUDEvent)
 	PaletteRequested   func()
+	// Expanded is called after a match is typed in, by its trigger or
+	// from the palette, with the characters it saved.
+	Expanded func(m model.Match, saved int, fromPalette bool)
 }
 
 // Expander is the running expansion engine.
@@ -224,7 +228,17 @@ func (e *Expander) onMatch(m model.Match, triggerLength int) {
 		e.Injector.Inject(rendered, triggerLength)
 		e.Ctx.RecordExpansion(m.Trigger, rendered)
 		e.Ctx.SetSuppress(false)
+		e.expanded(m, rendered, false)
 	})
+}
+
+// expanded reports an expansion, which saved the replacement's
+// characters less the trigger's.
+func (e *Expander) expanded(m model.Match, rendered string, fromPalette bool) {
+	if e.h.Expanded != nil {
+		saved := utf8.RuneCountInString(rendered) - utf8.RuneCountInString(m.Trigger)
+		e.h.Expanded(m, max(saved, 0), fromPalette)
+	}
 }
 
 func clipboardText() string {
@@ -237,6 +251,9 @@ func clipboardText() string {
 func (e *Expander) InjectFromPalette(m model.Match) {
 	rendered := engine.Render(m.Replace, clipboardText, time.Now())
 	time.AfterFunc(30*time.Millisecond, func() {
-		e.Async(func() { e.Injector.Inject(rendered, 0) })
+		e.Async(func() {
+			e.Injector.Inject(rendered, 0)
+			e.expanded(m, rendered, true)
+		})
 	})
 }

@@ -19,6 +19,19 @@ func ActivateApp(pid int) {
 	})
 }
 
+// FrontmostApp returns the bundle identifier and name of the app in front,
+// "" for both when there is none.
+func FrontmostApp() (bundleID, name string) {
+	withPool(func() {
+		app := class("NSWorkspace").Send(sel("sharedWorkspace")).Send(sel("frontmostApplication"))
+		if app != 0 {
+			bundleID = goString(app.Send(sel("bundleIdentifier")))
+			name = goString(app.Send(sel("localizedName")))
+		}
+	})
+	return bundleID, name
+}
+
 // observers keeps the blocks of the notifications observed, which live as
 // long as the app.
 var observers []objc.Block

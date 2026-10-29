@@ -43,6 +43,10 @@ var (
 	iconPencil   = svgIcon("pencil")
 	iconCopy     = svgIcon("copy")
 	iconDupe     = svgIcon("copy-plus")
+	iconInsights = svgIcon("chart-column")
+	iconZap      = svgIcon("zap")
+	iconActivity = svgIcon("activity")
+	iconTimer    = svgIcon("timer")
 )
 
 // appIcon returns Sokki's icon, decoded the first time it shows.

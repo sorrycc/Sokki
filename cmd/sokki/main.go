@@ -20,6 +20,7 @@ import (
 	"sokki/internal/model"
 	"sokki/internal/prefs"
 	"sokki/internal/telemetry"
+	"sokki/internal/usage"
 )
 
 // bundleID is the identifier of the Swift app's UserDefaults, which the
@@ -32,6 +33,7 @@ type app struct {
 	dir       config.Dir
 	store     *config.Store
 	recency   *config.Recency
+	usage     *usage.Store
 	prefs     *prefs.Store
 	exp       *expander.Expander
 	telemetry *telemetry.Config
@@ -135,12 +137,16 @@ func (a *app) ready() {
 
 	a.store = config.NewStore(a.dir)
 	a.recency = config.NewRecency(a.dir)
+	a.usage = usage.Open(string(a.dir))
 	a.exp = expander.New(expander.Handlers{
 		SecureInputChanged: func(s bool) { a.post(func() { a.secure = s; a.updateTray() }) },
 		Toggled:            func(on bool) { a.post(func() { a.store.Config.Enabled = on; a.updateTray() }) },
 		HUDRequested:       func() { a.post(a.hud.toggle) },
 		HUDEvent:           func(ev model.HUDEvent) { a.post(func() { a.recordEvent(ev) }) },
 		PaletteRequested:   func() { a.post(a.palette.toggle) },
+		Expanded: func(m model.Match, saved int, fromPalette bool) {
+			a.post(func() { a.logUse(m, saved, fromPalette) })
+		},
 	})
 	a.store.OnMatchesChanged = func() {
 		a.exp.SetMatches(a.store.Matches)
@@ -193,6 +199,7 @@ func (a *app) ready() {
 		a.exp.Stop()
 		a.cloud.flush()
 		a.recency.Flush()
+		a.usage.Flush()
 		if a.tray != nil {
 			a.tray.Destroy()
 		}
@@ -260,7 +267,7 @@ func (a *app) watchConfig() {
 			for _, e := range events {
 				base := path.Base(e.Path)
 				if !strings.HasPrefix(e.Path, "logs/") && e.Path != "logs" && !strings.HasPrefix(base, ".sokki-") &&
-					!strings.HasPrefix(base, syncFile) && base != tokenKey {
+					!strings.HasPrefix(base, syncFile) && base != tokenKey && !strings.HasPrefix(base, usage.File) {
 					relevant = true
 				}
 			}
@@ -327,6 +334,14 @@ func (a *app) recordEvent(ev model.HUDEvent) {
 		a.settings.invalidate()
 	}
 	a.hud.record(ev)
+}
+
+// logUse counts an expansion for Insights, in the app in front, which
+// it went to.
+func (a *app) logUse(m model.Match, saved int, fromPalette bool) {
+	id, name := macos.FrontmostApp()
+	a.usage.Log(usage.Event{Trigger: m.Trigger, Palette: fromPalette, App: id, AppName: name, Saved: saved})
+	a.settings.invalidate()
 }
 
 // accessibilitySettings is the pane of System Settings that grants Sokki

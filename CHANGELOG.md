@@ -8,6 +8,10 @@ The update window shows the section of the version it offers: every release need
 
 ## Unreleased
 
+- **Settings → Insights** charts your expansions of the past 7 days, with today against the average.
+- Insights counts the characters your matches saved you and the typing time that comes to.
+- Insights ranks your most used triggers and the apps you expand in, and splits typed from palette use.
+- Insights lists the matches you haven't used in 7 days; click one to edit it.
 - **Settings → Account** signs in to your mon.sorrycc.dev account to sync matches and settings between Macs.
 - Synced Macs merge each match on its own, so edits to different matches on two Macs both stay.
 - The menu bar menu has **Sign In to Sync…**, and **Sync Now** once signed in.

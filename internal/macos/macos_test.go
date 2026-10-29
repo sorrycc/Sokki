@@ -26,6 +26,7 @@ func TestPasteboardRoundTrip(t *testing.T) {
 func TestSystemQueries(t *testing.T) {
 	_ = IsTrusted()
 	_ = IsSecureInput()
+	_, _ = FrontmostApp()
 }
 
 func TestTapStartStop(t *testing.T) {

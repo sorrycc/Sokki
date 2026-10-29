@@ -19,6 +19,7 @@ import (
 	"sokki/internal/mon"
 	"sokki/internal/prefs"
 	"sokki/internal/telemetry"
+	"sokki/internal/usage"
 )
 
 // testApp is an app over a temporary configuration, with no windows: the
@@ -31,6 +32,7 @@ func testApp(t testing.TB) *app {
 	a.dir.Bootstrap()
 	a.store = config.NewStore(a.dir)
 	a.recency = config.NewRecency(a.dir)
+	a.usage = usage.Open(root)
 	a.prefs = prefs.Open(filepath.Join(root, "prefs.json"))
 	a.exp = expander.New(expander.Handlers{})
 	a.store.OnMatchesChanged = func() { a.exp.SetMatches(a.store.Matches) }
@@ -186,17 +188,21 @@ func TestSettingsPages(t *testing.T) {
 	}
 	shot(t, tt, "general")
 	tt.Key(ui.Cmd, ui.Key3)
+	if !tt.HasText("No expansions yet") {
+		t.Fatalf("Insights: %q", tt.Texts())
+	}
+	tt.Key(ui.Cmd, ui.Key4)
 	for _, want := range []string{"Search matches", "Pause or resume", "Recent Activity"} {
 		if !tt.HasText(want) {
 			t.Fatalf("Shortcuts lacks %q: %q", want, tt.Texts())
 		}
 	}
 	shot(t, tt, "shortcuts")
-	tt.Key(ui.Cmd, ui.Key4)
+	tt.Key(ui.Cmd, ui.Key5)
 	if !tt.HasText("Sign in to sync") {
 		t.Fatalf("Account: %q", tt.Texts())
 	}
-	tt.Key(ui.Cmd, ui.Key5)
+	tt.Key(ui.Cmd, ui.Key6)
 	if !tt.HasText("Telemetry is off in this build") {
 		t.Fatalf("Privacy: %q", tt.Texts())
 	}
@@ -206,7 +212,7 @@ func TestSettingsPages(t *testing.T) {
 		t.Fatalf("Privacy: %q", tt.Texts())
 	}
 	shot(t, tt, "privacy")
-	tt.Key(ui.Cmd, ui.Key6)
+	tt.Key(ui.Cmd, ui.Key7)
 	if !tt.HasText("Sokki") || !tt.HasText("Release Notes") {
 		t.Fatalf("About: %q", tt.Texts())
 	}
@@ -214,6 +220,54 @@ func TestSettingsPages(t *testing.T) {
 	tt.SetDark(true)
 	tt.Key(ui.Cmd, ui.Key1)
 	shot(t, tt, "matches-dark")
+}
+
+func TestInsights(t *testing.T) {
+	a := testApp(t)
+	a.usage.Log(usage.Event{Trigger: ":hello", App: "com.apple.Notes", AppName: "Notes", Saved: 8})
+	a.usage.Log(usage.Event{Trigger: ":hello", App: "com.apple.mail", AppName: "Mail", Saved: 8})
+	a.usage.Log(usage.Event{Trigger: ":sig", App: "com.apple.mail", AppName: "Mail", Palette: true, Saved: 300})
+	a.settings.setPage(insightsPage)
+	tt := ui.NewTester(a.settings.view, 780, 900)
+	tt.Advance(time.Second)
+	for _, want := range []string{"Expansions", "Characters saved", "316", "about 2 min of typing",
+		"Most Used", ":hello", "Typed vs Palette", "Mail", "Notes", "2 matches not used in 7 days"} {
+		if !tt.HasText(want) {
+			t.Fatalf("Insights lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("Unused matches"); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.HasText(":today") {
+		t.Fatalf("unused not listed: %q", tt.Texts())
+	}
+	shot(t, tt, "insights")
+	if err := tt.Click("Edit :today"); err != nil {
+		t.Fatal(err)
+	}
+	if a.editor.trigger != ":today" {
+		t.Fatalf("editor has %q", a.editor.trigger)
+	}
+	if err := tt.Click("Clear Usage Data…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("Clear"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.usage.Total() != 0 || !tt.HasText("No expansions yet") {
+		t.Fatalf("not cleared: %q", tt.Texts())
+	}
+}
+
+func TestTypingTime(t *testing.T) {
+	for n, want := range map[int]string{0: "under a minute of typing", 600: "about 3 min of typing", 18000: "about 1.5 h of typing"} {
+		if got := typingTime(n); got != want {
+			t.Errorf("typingTime(%d) = %q, want %q", n, got, want)
+		}
+	}
 }
 
 func TestSidebarShowsAFile(t *testing.T) {
