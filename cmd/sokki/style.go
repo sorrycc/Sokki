@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/engine"
+	"sokki/internal/model"
 )
 
 // The icons are Lucide's (ISC license), drawn in the color of the text.
@@ -47,6 +48,7 @@ var (
 	iconZap      = svgIcon("zap")
 	iconActivity = svgIcon("activity")
 	iconTimer    = svgIcon("timer")
+	iconPrompt   = svgIcon("message-square-text")
 )
 
 // appIcon returns Sokki's icon, decoded the first time it shows.
@@ -85,6 +87,24 @@ func keycapMarked(c *ui.Context, s string, chosen bool, marks []int) ui.Element 
 	}
 	return e.Font("monospace").FontSize(12).TextColor(fg).SingleLine().
 		Padding(2, 7).Radius(5).Background(bg).Border(0.5, border)
+}
+
+// triggerCap is a match's trigger as a keycap, or, for a match without
+// one, a plate saying it is inserted from the palette.
+func triggerCap(c *ui.Context, m model.Match, chosen bool, marks []int) ui.Element {
+	if m.Trigger != "" {
+		return keycapMarked(c, m.Trigger, chosen, marks)
+	}
+	t := c.Theme()
+	fg, border := t.TextMuted, t.Text.Alpha(0.14)
+	if chosen {
+		fg, border = t.AccentText.Alpha(0.85), t.AccentText.Alpha(0.3)
+	}
+	return ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(2, 7).Radius(5).Border(0.5, border).
+		Tooltip("No trigger: inserted from the palette").Children(func() {
+		ui.Icon(c, iconPrompt).FontSize(11).TextColor(fg)
+		ui.Text(c, "Palette").FontSize(11).TextColor(fg).SingleLine()
+	})
 }
 
 // marked splits s into spans, the runes at marks (ascending rune indexes)

@@ -23,6 +23,9 @@ type Handlers struct {
 	HUDRequested       func()
 	HUDEvent           func(ev model.HUDEvent)
 	PaletteRequested   func()
+	// CaptureRequested is called on the shortcut that saves the
+	// selection as a prompt.
+	CaptureRequested func()
 	// Expanded is called after a match is typed in, by its trigger or
 	// from the palette, with the characters it saved.
 	Expanded func(m model.Match, saved int, fromPalette bool)
@@ -166,6 +169,10 @@ func (e *Expander) handleKey(ev macos.KeyEvent) bool {
 	// also switch the input source.
 	if e.Ctx.PaletteChord(ev.KeyCode, flags) {
 		e.Async(func() { call(e.h.PaletteRequested) })
+		return false
+	}
+	if e.Ctx.CaptureChord(ev.KeyCode, flags) {
+		e.Async(func() { call(e.h.CaptureRequested) })
 		return false
 	}
 

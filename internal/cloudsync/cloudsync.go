@@ -31,7 +31,7 @@ import (
 // App is Sokki's client id with Mon, and its settings document's name.
 const App = "sokki"
 
-// Match is a match as it syncs.
+// Match is a match as it syncs. A prompt's trigger is "".
 type Match struct {
 	File    string `json:"file"`
 	Trigger string `json:"trigger"`
@@ -40,7 +40,11 @@ type Match struct {
 	Enabled bool   `json:"enabled"`
 }
 
-func (m Match) key() string { return m.File + "\x00" + m.Trigger }
+// key is the match's file and model.Match.Key, its trigger or, for a
+// prompt, its title.
+func (m Match) key() string {
+	return m.File + "\x00" + model.Match{Trigger: m.Trigger, Replace: m.Replace, Label: m.Label}.Key()
+}
 
 // Snapshot is what syncs: the keys of config/default.yml, and the matches
 // sorted by file, in the order of each file.

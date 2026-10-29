@@ -316,6 +316,13 @@ var paletteOptions = []option{
 	{"none", "None"},
 }
 
+var captureOptions = []option{
+	{"ctrl+opt+p", "⌃⌥ P"},
+	{"ctrl+opt+s", "⌃⌥ S"},
+	{"ctrl+shift+p", "⌃⇧ P"},
+	{"none", "None"},
+}
+
 // shortcutLabel returns how an option of a shortcut reads, "" for none.
 func shortcutLabel(options []option, value string) string {
 	for _, o := range options {
@@ -386,8 +393,11 @@ func (s *settingsWindow) shortcuts(c *ui.Context) {
 	changed := false
 	scrollPage(c, "Shortcuts", "Reach Sokki from any app.", func() {
 		group(c, "", func() {
-			setting(c, "Search matches", "Opens the palette to find a match and type it.", true, func() {
+			setting(c, "Search matches", "Opens the palette to find a match or prompt and type it.", true, func() {
 				changed = choose(c, &cfg.PaletteShortcut, paletteOptions) || changed
+			})
+			setting(c, "Save selection as prompt", "Saves the text selected in any app to prompts.yml at once.", false, func() {
+				changed = choose(c, &cfg.CaptureShortcut, captureOptions) || changed
 			})
 			setting(c, "Pause or resume", "Turns expansion off and on again.", false, func() {
 				changed = choose(c, &cfg.ToggleShortcut, toggleOptions) || changed
@@ -405,8 +415,9 @@ func (s *settingsWindow) shortcuts(c *ui.Context) {
 		group(c, "In the palette", func() {
 			for i, h := range [][2]string{
 				{"↵", "Type the match into the app you were in"},
+				{"⌘C", "Copy it, its variables filled in"},
 				{"⌘↵", "Edit the match"},
-				{"⌘N", "New match"},
+				{"⌘N", "New prompt, from the selection or the clipboard"},
 				{"⌘,", "Open Settings"},
 				{"esc", "Clear the search, then close"},
 			} {

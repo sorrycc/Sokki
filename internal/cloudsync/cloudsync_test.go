@@ -178,6 +178,20 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+func TestMergePrompts(t *testing.T) {
+	prompt := func(label, replace string) Match {
+		return Match{File: "prompts.yml", Label: label, Replace: replace, Enabled: true}
+	}
+	base := snap(prompt("Review", "1"), prompt("Explain", "2"))
+	local := snap(prompt("Review", "local"), prompt("Explain", "2"))
+	remote := snap(prompt("Review", "1"), prompt("Explain", "remote"), prompt("Plan", "3"))
+	got := Merge(base, local, remote)
+	want := []string{"=local", "=remote", "=3"}
+	if !slices.Equal(triggers(got), want) {
+		t.Errorf("prompts = %q, want %q", triggers(got), want)
+	}
+}
+
 func TestFirstSyncUploadsToAnEmptyAccount(t *testing.T) {
 	f := &fakeMon{}
 	l := &fakeLocal{s: snap(m(":a", "1"))}

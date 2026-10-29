@@ -27,6 +27,7 @@ func TestSystemQueries(t *testing.T) {
 	_ = IsTrusted()
 	_ = IsSecureInput()
 	_, _ = FrontmostApp()
+	_, _ = SelectedText()
 }
 
 func TestTapStartStop(t *testing.T) {

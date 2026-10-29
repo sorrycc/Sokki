@@ -20,6 +20,11 @@ import (
 // DefaultMatchFile is the match file new matches go to.
 const DefaultMatchFile = "default.yml"
 
+// PromptFile is the match file prompts added from the palette or captured
+// go to. It has a file of its own since a Sokki before prompts cannot
+// load a match without a trigger, and fails the whole file it is in.
+const PromptFile = "prompts.yml"
+
 // Dir is a configuration directory, ~/.config/sokki in the app.
 type Dir string
 
@@ -91,11 +96,16 @@ func (d Dir) Load() LoadResult {
 		}
 		for _, m := range f.Matches {
 			m.SourceFile = name
-			if prev, ok := seen[m.Trigger]; ok {
-				r.Warnings = append(r.Warnings, fmt.Sprintf("Duplicate trigger %q in %s (overrides %s)", m.Trigger, name, prev))
-				r.Matches = slices.DeleteFunc(r.Matches, func(x model.Match) bool { return x.Trigger == m.Trigger })
+			key := m.Key()
+			if prev, ok := seen[key]; ok {
+				what := "trigger"
+				if m.Trigger == "" {
+					what = "prompt"
+				}
+				r.Warnings = append(r.Warnings, fmt.Sprintf("Duplicate %s %q in %s (overrides %s)", what, key, name, prev))
+				r.Matches = slices.DeleteFunc(r.Matches, func(x model.Match) bool { return x.Key() == key })
 			}
-			seen[m.Trigger] = name
+			seen[key] = name
 			r.Matches = append(r.Matches, m)
 		}
 	}

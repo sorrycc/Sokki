@@ -74,14 +74,23 @@ func (s *settingsWindow) insights(c *ui.Context) {
 	}
 }
 
-// matchOf returns the match of a trigger.
-func (s *settingsWindow) matchOf(trigger string) (model.Match, bool) {
-	for _, m := range s.a.store.Matches {
-		if m.Trigger == trigger {
-			return m, true
-		}
+// usageCap shows a key of the usage log: a trigger as a keycap, a
+// prompt's title after the prompt icon.
+func usageCap(c *ui.Context, key string, trigger bool) ui.Element {
+	if trigger {
+		return keycap(c, key, false)
 	}
-	return model.Match{}, false
+	t := c.Theme()
+	return ui.Row(c).Gap(5).AlignItems(ui.Center).Padding(2, 7).Radius(5).Border(0.5, t.Text.Alpha(0.14)).Children(func() {
+		ui.Icon(c, iconPrompt).FontSize(11).TextColor(t.TextMuted).Shrink(0)
+		ui.Text(c, key).FontSize(12).SingleLine().Ellipsis("…").Shrink(1)
+	})
+}
+
+// matchOf returns the match of a key of the usage log: a trigger, or a
+// prompt's title.
+func (s *settingsWindow) matchOf(key string) (model.Match, bool) {
+	return s.a.store.WithKey(key)
 }
 
 // mostUsed lists the 10 triggers expanded most, with bars; clicking one
@@ -106,7 +115,7 @@ func (s *settingsWindow) mostUsed(c *ui.Context, triggers []usage.Count, total i
 				if i == 0 {
 					rank.TextColor(t.Warning)
 				}
-				ui.Row(c).Width(130).Children(func() { keycap(c, tr.Key, false).Shrink(1).Ellipsis("…") })
+				ui.Row(c).Width(130).Children(func() { usageCap(c, tr.Key, !ok || m.Trigger != "").Shrink(1).Ellipsis("…") })
 				bar(c, float32(tr.Count)/most, t.Accent, time.Duration(i)*35*time.Millisecond)
 				ui.Textf(c, "%d", tr.Count).FontSize(11).FontWeight(600).FontFeatures("tnum").Width(32).TextAlign(ui.End)
 				ui.Textf(c, "%.0f%%", float32(tr.Count)*100/float32(total)).FontSize(11).FontFeatures("tnum").
@@ -180,7 +189,7 @@ func (s *settingsWindow) unused(c *ui.Context, triggers []usage.Count) {
 	}
 	var idle []model.Match
 	for _, m := range s.a.store.Matches {
-		if m.Enabled && !used[m.Trigger] {
+		if m.Enabled && !used[m.Key()] {
 			idle = append(idle, m)
 		}
 	}
@@ -205,9 +214,9 @@ func (s *settingsWindow) unused(c *ui.Context, triggers []usage.Count) {
 		}
 		ui.Row(c).Wrap().Gap(6).Children(func() {
 			for _, m := range idle {
-				b := ui.ButtonBase(c.Key(m.Trigger)).Label("Edit " + m.Trigger).Tooltip(summary(m.Replace)).
+				b := ui.ButtonBase(c.Key(m.Key())).Label("Edit " + m.Key()).Tooltip(summary(m.Replace)).
 					OnClick(func() { s.a.editor.edit(m) })
-				b.Children(func() { keycap(c, m.Trigger, false) })
+				b.Children(func() { usageCap(c, m.Key(), m.Trigger != "") })
 			}
 		})
 	})

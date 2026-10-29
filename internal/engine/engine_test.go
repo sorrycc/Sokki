@@ -77,6 +77,17 @@ func TestMatcherIgnoresDisabled(t *testing.T) {
 	}
 }
 
+func TestMatcherIgnoresPrompts(t *testing.T) {
+	ms := append(matches(":a"), model.Match{ID: model.NewID(), Label: "Prompt", Replace: "Review", Enabled: true})
+	m := NewMatcher(ms)
+	if m.root.match != nil {
+		t.Fatal("a match without a trigger is in the trie")
+	}
+	if res := feedAll(m, "x:a"); res == nil || res.Match.Trigger != ":a" {
+		t.Fatalf("got %+v", res)
+	}
+}
+
 func TestBuffer(t *testing.T) {
 	b := NewBuffer(4)
 	for _, r := range "abcdef" {
@@ -247,6 +258,14 @@ func TestContextSuppressAndPalette(t *testing.T) {
 	c.SetConfig(cfg)
 	if !c.PaletteChord(KeySpace, FlagAlternate) || c.PaletteChord(KeySpace, FlagAlternate|FlagShift) {
 		t.Fatal("palette chord")
+	}
+	if c.CaptureChord(KeyP, FlagControl|FlagAlternate) {
+		t.Fatal("capture chord while none")
+	}
+	cfg.CaptureShortcut = "ctrl+opt+p"
+	c.SetConfig(cfg)
+	if !c.CaptureChord(KeyP, FlagControl|FlagAlternate) || c.CaptureChord(KeyS, FlagControl|FlagAlternate) || c.PaletteChord(KeyP, FlagControl|FlagAlternate) {
+		t.Fatal("capture chord")
 	}
 }
 

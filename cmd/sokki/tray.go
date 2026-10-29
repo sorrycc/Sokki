@@ -69,6 +69,10 @@ func (a *app) trayMenu() *mygo.Menu {
 	if s := shortcutLabel(toggleOptions, cfg.ToggleShortcut); s != "" {
 		enabled += "  (" + s + ")"
 	}
+	capture := "New Prompt from Selection"
+	if s := shortcutLabel(captureOptions, cfg.CaptureShortcut); s != "" {
+		capture += "  (" + s + ")"
+	}
 	search := "Search Matches…"
 	if s := shortcutLabel(paletteOptions, cfg.PaletteShortcut); s != "" {
 		search += "  (" + s + ")"
@@ -83,6 +87,7 @@ func (a *app) trayMenu() *mygo.Menu {
 		mygo.Separator(),
 		&mygo.MenuItem{Label: search, Click: click(a.palette.show)},
 		&mygo.MenuItem{Label: "New Match…", Click: click(func() { a.settings.matches.newMatch("") })},
+		&mygo.MenuItem{Label: capture, Click: click(a.palette.capture)},
 		&mygo.MenuItem{Label: "Recent Activity", Click: click(a.hud.toggle)},
 		mygo.Separator(),
 	)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 
@@ -290,6 +291,7 @@ func TestGeneralSavesConfig(t *testing.T) {
 	tt := ui.NewTester(a.settings.view, 780, 640)
 	// The selects show their choice: only the toggle's is None.
 	a.store.Config.PaletteShortcut, a.store.Config.HUDShortcut = "opt+space", "double_control"
+	a.store.Config.CaptureShortcut = "ctrl+opt+p"
 	tt.Frame()
 	if err := tt.Click("None"); err != nil {
 		t.Fatalf("%v: %q", err, tt.Texts())
@@ -644,4 +646,142 @@ func TestSyncAppliesToTheFiles(t *testing.T) {
 	if err := l.Apply(read, read); err != cloudsync.ErrStale {
 		t.Errorf("err = %v, want ErrStale", err)
 	}
+}
+
+// ⌘N in the palette makes a prompt of the selection, else the clipboard,
+// in prompts.yml, without leaving the palette.
+func TestPaletteQuickAddsAPrompt(t *testing.T) {
+	a := testApp(t)
+	p := a.palette
+	p.selectedText = func() (string, string) { return "Review this diff for bugs.\nBe brief.", "Safari" }
+	p.query = "Review diff"
+	p.filter()
+	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	tt.Key(ui.Cmd, ui.KeyN)
+	tt.Frame()
+	if p.mode != modeAdd || p.add.label != "Review diff" || p.add.trigger != "" || p.add.file != config.PromptFile {
+		t.Fatalf("form %+v", p.add)
+	}
+	if !tt.HasText("New Prompt") || !tt.HasText("From the selection in Safari") {
+		t.Fatalf("form: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-new-prompt")
+	tt.Key(ui.Cmd, ui.KeyEnter)
+	tt.Frame()
+	if p.mode != modeSearch {
+		t.Fatalf("still in the form: %q", tt.Texts())
+	}
+	m, ok := a.store.WithKey("Review diff")
+	if !ok || m.Trigger != "" || m.SourceFile != config.PromptFile || m.Replace != "Review this diff for bugs.\nBe brief." {
+		t.Fatalf("saved %+v %v", m, ok)
+	}
+	if got, ok := p.selected(); !ok || got.ID != m.ID {
+		t.Fatalf("chosen %+v", got)
+	}
+	if !tt.HasText("Palette") {
+		t.Fatalf("no Palette badge: %q", tt.Texts())
+	}
+	// It is in its own file, and loads again.
+	a.store.Load()
+	if again, ok := a.store.WithKey("Review diff"); !ok || again.ID != m.ID {
+		t.Fatalf("reloaded %+v %v", again, ok)
+	}
+	data, err := os.ReadFile(filepath.Join(a.dir.MatchDir(), config.PromptFile))
+	if err != nil || strings.Contains(string(data), "trigger") || !strings.Contains(string(data), "label: Review diff") {
+		t.Fatalf("prompts.yml: %v\n%s", err, data)
+	}
+
+	// Without a selection the clipboard is used; a query like a trigger
+	// is the trigger; the same title twice is refused.
+	p.selectedText = func() (string, string) { return "", "" }
+	p.clipboard = "Explain it slowly"
+	p.query = ";explain"
+	p.quickAdd()
+	if p.add.trigger != ";explain" || p.add.label != "" || p.add.source != "From the clipboard" {
+		t.Fatalf("form %+v", p.add)
+	}
+	p.add.trigger, p.add.label = "", "Review diff"
+	if p.addProblem() == "" {
+		t.Fatal("saves a second prompt of the same title")
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if p.mode != modeSearch {
+		t.Fatal("escape did not go back")
+	}
+}
+
+func TestCaptureSavesTheSelection(t *testing.T) {
+	a := testApp(t)
+	p := a.palette
+	p.selectedText = func() (string, string) { return "  \n", "Notes" }
+	p.captureNow()
+	if p.captured.ok {
+		t.Fatal("saved blank text")
+	}
+	p.mode = modeSaved
+	tt := ui.NewTester(p.view, paletteWidth, savedHeight)
+	if !tt.HasText("Nothing selected") {
+		t.Fatalf("saved: %q", tt.Texts())
+	}
+	long := strings.Repeat("word ", 20) + "\nsecond line"
+	p.selectedText = func() (string, string) { return long, "Notes" }
+	p.captureNow()
+	p.captureNow()
+	first, second := promptLabel(long), promptLabel(long)+" 2"
+	if utf8.RuneCountInString(first) != 60 {
+		t.Fatalf("label %q", first)
+	}
+	for _, key := range []string{first, second} {
+		if m, ok := a.store.WithKey(key); !ok || m.Replace != long || m.SourceFile != config.PromptFile {
+			t.Fatalf("%q: %+v %v", key, m, ok)
+		}
+	}
+	tt.Frame()
+	if !tt.HasText("Saved as a prompt") || !tt.HasText("Undo") {
+		t.Fatalf("saved: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-captured")
+	if err := tt.Click("Undo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := a.store.WithKey(second); ok {
+		t.Fatal("undo kept the prompt")
+	}
+}
+
+func TestEditorSavesAPromptWithoutTrigger(t *testing.T) {
+	a := testApp(t)
+	e := a.editor
+	e.compose(model.Match{Label: "Plan", Replace: "Plan it first."})
+	if e.title != "New Prompt" || e.file != config.PromptFile || !e.canSave() {
+		t.Fatalf("editor %+v", e)
+	}
+	tt := ui.NewTester(e.view, 560, 540)
+	if !tt.HasText("No trigger: a prompt, inserted from the palette.") {
+		t.Fatalf("editor: %q", tt.Texts())
+	}
+	e.label = ""
+	e.replace = "\n\n:hello"
+	tt.Frame()
+	if !tt.HasText("Another match in default.yml has this title. Give this one a label.") {
+		t.Fatalf("no conflict: %q", tt.Texts())
+	}
+	e.label, e.replace = "Plan", "Plan it first."
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := a.store.WithKey("Plan"); !ok || m.Trigger != "" {
+		t.Fatalf("saved %+v %v", m, ok)
+	}
+	tt = ui.NewTester(a.settings.view, 780, 560)
+	if err := tt.Click("Plan"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("From the palette, typed") {
+		t.Fatalf("detail: %q", tt.Texts())
+	}
+	shot(t, tt, "matches-prompt")
 }

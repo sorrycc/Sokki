@@ -16,7 +16,8 @@ import (
 )
 
 // editorWindow is the window that edits a match, or makes a new one,
-// from Settings, the palette (⌘↵) and the HUD.
+// from Settings, the palette (⌘↵, and ⌘E from its New Prompt form) and the
+// HUD. A match without a trigger is a prompt, inserted from the palette.
 type editorWindow struct {
 	a   *app
 	win *mygo.Window
@@ -77,6 +78,18 @@ func (e *editorWindow) create(file, trigger string) {
 	e.open("New Match")
 }
 
+// compose opens a new prompt with m's fields, as the palette's New Prompt
+// form had them.
+func (e *editorWindow) compose(m model.Match) {
+	e.existing = 0
+	e.trigger, e.replace, e.label, e.enabled = m.Trigger, m.Replace, m.Label, true
+	e.file = m.SourceFile
+	if e.file == "" {
+		e.file = config.PromptFile
+	}
+	e.open("New Prompt")
+}
+
 // duplicate opens a new match with m's fields, to save under another
 // trigger.
 func (e *editorWindow) duplicate(m model.Match) {
@@ -92,7 +105,7 @@ func (e *editorWindow) duplicate(m model.Match) {
 // current is the match as edited.
 func (e *editorWindow) current() model.Match {
 	return model.Match{
-		ID: e.existing, Trigger: e.trigger, Replace: e.replace, Label: strings.TrimSpace(e.label), Enabled: e.enabled,
+		ID: e.existing, Trigger: triggerOf(e.trigger), Replace: e.replace, Label: strings.TrimSpace(e.label), Enabled: e.enabled,
 		SourceFile: e.file,
 	}
 }
@@ -170,21 +183,31 @@ func (e *editorWindow) files() []string {
 	return files
 }
 
+// triggerOf is the trigger typed in a field: as typed, spaces too, as
+// "teh " has, but none when it is blank.
+func triggerOf(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return s
+}
+
 // minTrigger is the fewest characters a trigger has: one character, as
 // a lone ":", would expand wherever it is typed.
 const minTrigger = 2
 
 // triggerTooShort reports a trigger under minTrigger, but for one a
-// match had already, from its file.
+// match had already, from its file. No trigger at all is a prompt's.
 func (e *editorWindow) triggerTooShort() bool {
-	if e.existing != 0 && e.trigger == e.orig.Trigger && e.trigger != "" {
+	trigger := triggerOf(e.trigger)
+	if trigger == "" || e.existing != 0 && trigger == e.orig.Trigger {
 		return false
 	}
-	return utf8.RuneCountInString(strings.TrimSpace(e.trigger)) < minTrigger
+	return utf8.RuneCountInString(strings.TrimSpace(trigger)) < minTrigger
 }
 
 func (e *editorWindow) canSave() bool {
-	return !e.triggerTooShort() && e.replace != ""
+	return !e.triggerTooShort() && e.replace != "" && e.current().Key() != ""
 }
 
 func (e *editorWindow) save() {
@@ -284,10 +307,12 @@ var variables = []struct{ label, text string }{
 	{"Weekday (Sunday)", "{{date:EEEE}}"},
 }
 
-// conflict returns the other match with the trigger being edited.
+// conflict returns the other match with the key of the one being edited:
+// its trigger, or a prompt's title.
 func (e *editorWindow) conflict() (model.Match, bool) {
+	key := e.current().Key()
 	for _, m := range e.a.store.Matches {
-		if m.Trigger == e.trigger && m.ID != e.existing {
+		if key != "" && m.Key() == key && m.ID != e.existing {
 			return m, true
 		}
 	}
@@ -319,24 +344,31 @@ func (e *editorWindow) view(c *ui.Context) {
 			ui.Column(c).Grow(1).Padding(16, 20, 18, 20).Gap(16).Children(func() {
 				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
 					labeled(c, "Trigger", func() {
-						if ui.TextInput(c, &e.trigger).Bind(&e.triggerIn).Label("Trigger").Placeholder(":hello").Font("monospace").Submitted() {
+						if ui.TextInput(c, &e.trigger).Bind(&e.triggerIn).Label("Trigger").Placeholder("Optional, as :hello").Font("monospace").Submitted() {
 							e.save()
 						}
 					}).Grow(1).Basis(0)
 					labeled(c, "Label", func() {
-						ui.TextInput(c, &e.label).Label("Label").Placeholder("Optional — shown in the palette")
+						ui.TextInput(c, &e.label).Label("Label").Placeholder("Optional — names it in the palette")
 					}).Grow(1.4).Basis(0)
 				})
-				if m, ok := e.conflict(); ok && e.trigger != "" {
+				trigger := triggerOf(e.trigger)
+				if m, ok := e.conflict(); ok {
+					what := "has this trigger."
+					if trigger == "" {
+						what = "has this title. Give this one a label."
+					}
 					ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(-8, 0, 0, 0).Children(func() {
 						ui.Icon(c, iconWarning).FontSize(12).TextColor(t.Warning)
-						caption(c, "Another match in "+m.SourceFile+" has this trigger.").Wrap().Shrink(1)
+						caption(c, "Another match in "+m.SourceFile+" "+what).Wrap().Shrink(1)
 					})
-				} else if e.triggerTooShort() && e.trigger != ":" && e.trigger != "" {
+				} else if e.triggerTooShort() && trigger != ":" {
 					caption(c, "A trigger needs at least 2 characters, so that it doesn't expand by accident.").
 						TextColor(t.Warning).Wrap().Margin(-8, 0, 0, 0)
+				} else if trigger == "" {
+					caption(c, "No trigger: a prompt, inserted from the palette.").Margin(-8, 0, 0, 0)
 				} else {
-					caption(c, "Type the trigger anywhere and Sokki replaces it.").Margin(-8, 0, 0, 0)
+					caption(c, "Type the trigger anywhere and Sokki replaces it. Leave it empty for a prompt.").Margin(-8, 0, 0, 0)
 				}
 
 				ui.Column(c).Gap(6).Grow(1).Shrink(1).Children(func() {
@@ -352,7 +384,7 @@ func (e *editorWindow) view(c *ui.Context) {
 						}).Label("Insert Variable")
 					})
 					ta := ui.TextArea(c, &e.replace).Bind(&e.replaceIn).Label("Replacement").
-						Placeholder("What the trigger types").
+						Placeholder("What the trigger types, or the prompt").
 						Font("monospace").Grow(1).MinHeight(96).TextRanges(variableRanges(c, e.replace)...)
 					if e.caretSet {
 						ta.SetTextSelection(e.caret, e.caret)

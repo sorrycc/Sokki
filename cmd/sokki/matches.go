@@ -126,7 +126,7 @@ func (l *matchList) remove(c *ui.Context, m model.Match) {
 		return
 	}
 	l.a.store.Remove(m.ID)
-	c.ToastAction(fmt.Sprintf("Deleted %s", m.Trigger), "Undo", func() {
+	c.ToastAction(fmt.Sprintf("Deleted %s", m.Key()), "Undo", func() {
 		l.a.store.Insert(i, m)
 	})
 }
@@ -309,7 +309,7 @@ func (l *matchList) row(c *ui.Context, i int) {
 		if !m.Enabled {
 			ui.Text(c, "Off").FontSize(10).FontWeight(600).TextColor(mutedColor).Padding(1, 6).Radius(4).Border(0.5, mutedColor)
 		}
-		keycap(c, m.Trigger, chosen).Shrink(0).MaxWidth(120).Ellipsis("…").Opacity(enabledOpacity(m))
+		triggerCap(c, m, chosen, nil).Shrink(0).MaxWidth(120).Ellipsis("…").Opacity(enabledOpacity(m))
 	})
 	row.ContextMenu(func(menu *ui.Menu) {
 		if menu.Item("Edit…").Chosen() {
@@ -336,15 +336,13 @@ func (l *matchList) row(c *ui.Context, i int) {
 }
 
 // matchTitle is what a match is called in lists: its label, or the first
-// line of its replacement.
+// line of its replacement, marked when more lines follow.
 func matchTitle(m model.Match) string {
-	if m.Label != "" {
-		return m.Label
+	title := m.Title()
+	if m.Label == "" && title != m.Trigger && strings.Contains(strings.TrimSpace(m.Replace), "\n") {
+		title += " …"
 	}
-	if s := strings.TrimSpace(firstLine(m.Replace)); s != "" {
-		return s
-	}
-	return m.Trigger
+	return title
 }
 
 // titleText shows a match's title, its variables in the accent's color
@@ -394,7 +392,7 @@ func (l *matchList) detail(c *ui.Context) {
 					ui.Column(c).Grow(1).Shrink(1).Gap(8).Children(func() {
 						ui.Text(c, matchTitle(m)).FontSize(16).Bold().Wrap().MaxLines(2).Ellipsis("…")
 						ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-							keycap(c, m.Trigger, false).Shrink(1).Ellipsis("…")
+							triggerCap(c, m, false, nil).Shrink(1).Ellipsis("…")
 							if m.SourceFile != "" {
 								ui.Icon(c, iconFile).FontSize(12).TextColor(t.TextMuted)
 								caption(c, m.SourceFile).SingleLine().Ellipsis("…").Shrink(1)
@@ -416,7 +414,7 @@ func (l *matchList) detail(c *ui.Context) {
 				}
 				section(c, "Details", func() {
 					used := "Never"
-					if at, ok := l.a.recency.Last(m.Trigger); ok {
+					if at, ok := l.a.recency.Last(m.Key()); ok {
 						used = ago(at, time.Now())
 					}
 					facts(c, [][2]string{
@@ -456,9 +454,16 @@ func facts(c *ui.Context, rows [][2]string) {
 }
 
 // delivery says how a match's replacement reaches the app: typed, or
-// pasted when it is longer than the clipboard threshold.
+// pasted when it is longer than the clipboard threshold, and only from
+// the palette for a match without a trigger.
 func (l *matchList) delivery(m model.Match) string {
-	if utf8.RuneCountInString(m.Replace) > l.a.store.Config.ClipboardThreshold {
+	pasted := utf8.RuneCountInString(m.Replace) > l.a.store.Config.ClipboardThreshold
+	switch {
+	case m.Trigger == "" && pasted:
+		return "From the palette, pasted"
+	case m.Trigger == "":
+		return "From the palette, typed"
+	case pasted:
 		return "Pasted through the clipboard"
 	}
 	return "Typed key by key"

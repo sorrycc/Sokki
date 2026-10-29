@@ -11,7 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Match is a trigger and the text it expands to.
+// Match is a trigger and the text it expands to. A match without a
+// trigger, as a prompt, is inserted from the palette only.
 type Match struct {
 	// ID tells matches apart within a run; it is made anew at each load.
 	ID         int64
@@ -22,12 +23,28 @@ type Match struct {
 	SourceFile string
 }
 
-// Title is what lists show for the match: its label, else its trigger.
+// Title is what lists call the match: its label, else the first line of
+// its replacement that has text, else its trigger.
 func (m Match) Title() string {
 	if m.Label != "" {
 		return m.Label
 	}
+	for line := range strings.Lines(m.Replace) {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
 	return m.Trigger
+}
+
+// Key tells a match apart from the others of its file, across loads and
+// Macs: its trigger, or its title for a match without one. Recency, usage
+// and sync know matches by it.
+func (m Match) Key() string {
+	if m.Trigger != "" {
+		return m.Trigger
+	}
+	return m.Title()
 }
 
 var nextID atomic.Int64
@@ -103,15 +120,14 @@ func (m *Match) UnmarshalYAML(n *yaml.Node) error {
 			return &LoadIssue{Kind: "legacyKey", Key: k, Hint: "AI matches were removed; delete this match or use `replace:`"}
 		}
 	}
-	t, ok := fields["trigger"]
-	if !ok {
-		return fmt.Errorf("line %d: a match has no `trigger`", n.Line)
+	var trigger *string
+	if err := strict(fields, "trigger", &trigger); err != nil {
+		return err
 	}
-	var trigger string
-	if err := t.Decode(&trigger); err != nil {
-		return fmt.Errorf("`trigger`: %w", err)
+	*m = Match{ID: NewID(), Enabled: true}
+	if trigger != nil {
+		m.Trigger = *trigger
 	}
-	*m = Match{ID: NewID(), Trigger: trigger, Enabled: true}
 	lenient(fields, "replace", &m.Replace)
 	var label *string
 	if err := strict(fields, "label", &label); err != nil {
@@ -120,17 +136,23 @@ func (m *Match) UnmarshalYAML(n *yaml.Node) error {
 	if label != nil {
 		m.Label = *label
 	}
+	if m.Trigger == "" && m.Title() == "" {
+		return fmt.Errorf("line %d: a match has no `trigger`, `label` or `replace`", n.Line)
+	}
 	lenient(fields, "enabled", &m.Enabled)
 	return nil
 }
 
-// MarshalYAML writes the match as a match file holds it.
+// MarshalYAML writes the match as a match file holds it, without
+// `trigger` when it has none.
 func (m Match) MarshalYAML() (any, error) {
 	n := &yaml.Node{Kind: yaml.MappingNode}
 	add := func(key, value string) {
 		n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, stringNode(value))
 	}
-	add("trigger", m.Trigger)
+	if m.Trigger != "" {
+		add("trigger", m.Trigger)
+	}
 	add("replace", m.Replace)
 	if m.Label != "" {
 		add("label", m.Label)
@@ -169,6 +191,7 @@ type Config struct {
 	ToggleShortcut         string `yaml:"toggle_shortcut"`
 	HUDShortcut            string `yaml:"hud_shortcut"`
 	PaletteShortcut        string `yaml:"palette_shortcut"`
+	CaptureShortcut        string `yaml:"capture_shortcut"`
 	ConflictResolveDelayMs int    `yaml:"conflict_resolve_delay_ms"`
 }
 
@@ -177,7 +200,7 @@ func DefaultConfig() Config {
 	return Config{
 		Enabled: true, ClipboardThreshold: 50, PasteShortcut: "Cmd+V", PreserveClipboard: true,
 		RestoreClipboardDelay: 100, LogLevel: "debug", ToggleShortcut: "none", HUDShortcut: "none",
-		PaletteShortcut: "none", ConflictResolveDelayMs: 400,
+		PaletteShortcut: "none", CaptureShortcut: "none", ConflictResolveDelayMs: 400,
 	}
 }
 
@@ -200,6 +223,7 @@ func (c *Config) UnmarshalYAML(n *yaml.Node) error {
 	lenient(fields, "toggle_shortcut", &c.ToggleShortcut)
 	lenient(fields, "hud_shortcut", &c.HUDShortcut)
 	lenient(fields, "palette_shortcut", &c.PaletteShortcut)
+	lenient(fields, "capture_shortcut", &c.CaptureShortcut)
 	lenient(fields, "conflict_resolve_delay_ms", &c.ConflictResolveDelayMs)
 	return nil
 }

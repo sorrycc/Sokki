@@ -61,12 +61,37 @@ func TestMatchYAMLErrors(t *testing.T) {
 	for _, src := range []string{
 		"matches:\n  - trigger: x\n    ai: {}\n",
 		"matches:\n  - trigger: x\n    prompt: \"Fix {{s}}\"\n",
-		"matches:\n  - replace: y\n",
+		"matches:\n  - enabled: true\n",
+		"matches:\n  - trigger: [x]\n    replace: y\n",
 	} {
 		var f MatchFile
 		if err := yaml.Unmarshal([]byte(src), &f); err == nil {
 			t.Errorf("expected an error for %q", src)
 		}
+	}
+}
+
+func TestMatchWithoutTrigger(t *testing.T) {
+	src := "matches:\n  - label: Review\n    replace: |\n      Review this diff.\n  - replace: \"Explain it\\nslowly\"\n"
+	var f MatchFile
+	if err := yaml.Unmarshal([]byte(src), &f); err != nil {
+		t.Fatal(err)
+	}
+	if m := f.Matches[0]; m.Trigger != "" || m.Key() != "Review" || m.Title() != "Review" || !m.Enabled {
+		t.Fatalf("labeled: %+v key %q", m, m.Key())
+	}
+	if m := f.Matches[1]; m.Key() != "Explain it" {
+		t.Fatalf("unlabeled key %q", m.Key())
+	}
+	if (Match{Trigger: ":x", Label: "X"}).Key() != ":x" {
+		t.Fatal("a trigger is the key")
+	}
+	out, err := yaml.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "trigger") {
+		t.Fatalf("encoded a trigger:\n%s", out)
 	}
 }
 

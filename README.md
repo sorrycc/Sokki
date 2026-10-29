@@ -13,7 +13,9 @@ drawn by <a href="https://github.com/egoist/mygo">MyGo</a>'s native UI.</p>
   `{{date:yyyy-MM-dd}}` variables
 - **Undo:** backspace the whole expansion within 3 seconds and the trigger comes back
 - **Overlapping triggers:** `;d` and `;done` both work: the shorter fires after a short pause
-- **Palette:** a Spotlight-style finder of every match (⌥Space or another chord), ⌘↵ to edit
+- **Palette:** a Spotlight-style finder of every match (⌥Space or another chord), ⌘↵ to edit, ⌘C to copy
+- **Prompts:** a match without a trigger, inserted from the palette: ⌘N there saves the selected text (or
+  the clipboard) as one, and a shortcut saves the selection without opening anything
 - **Recent Activity:** a HUD showing what was matched or blocked, to find out why a trigger didn't fire
 - **Settings:** matches by file, with search, the editor, and the general and privacy settings
 - **Safe by default:** nothing is read in password fields (secure input), nothing typed is logged there
@@ -35,6 +37,10 @@ matches:
     replace: |
       Best regards,
       Your Name
+  # No trigger: a prompt, found in the palette by its label
+  - label: Review a diff
+    replace: |
+      Review this diff for bugs. Be brief.
 ```
 
 Files are reloaded as they change.

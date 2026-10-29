@@ -38,11 +38,12 @@ type Matcher struct {
 	pending *MatchResult
 }
 
-// NewMatcher builds the trie of the enabled matches.
+// NewMatcher builds the trie of the enabled matches with a trigger: one
+// without, a prompt, is only inserted from the palette.
 func NewMatcher(matches []model.Match) *Matcher {
 	var enabled []model.Match
 	for _, m := range matches {
-		if m.Enabled {
+		if m.Enabled && m.Trigger != "" {
 			enabled = append(enabled, m)
 		}
 	}

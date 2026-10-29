@@ -27,6 +27,8 @@ const (
 const (
 	KeySpace     uint16 = 0x31
 	KeyBackspace uint16 = 0x33
+	KeyP         uint16 = 0x23
+	KeyS         uint16 = 0x01
 )
 
 func isCaretKey(code uint16) bool {
@@ -66,23 +68,38 @@ type Result struct {
 	Snapshot string
 }
 
-// PaletteChord is the key and the modifiers that open the palette.
-type PaletteChord struct {
+// Chord is a key and the modifiers held with it, as the palette's
+// shortcut.
+type Chord struct {
 	KeyCode   uint16
 	Modifiers Flags
 }
 
 // ParsePaletteChord parses palette_shortcut, nil for "none".
-func ParsePaletteChord(s string) *PaletteChord {
+func ParsePaletteChord(s string) *Chord {
 	switch s {
 	case "opt+space":
-		return &PaletteChord{KeySpace, FlagAlternate}
+		return &Chord{KeySpace, FlagAlternate}
 	case "ctrl+space":
-		return &PaletteChord{KeySpace, FlagControl}
+		return &Chord{KeySpace, FlagControl}
 	case "ctrl+opt+space":
-		return &PaletteChord{KeySpace, FlagControl | FlagAlternate}
+		return &Chord{KeySpace, FlagControl | FlagAlternate}
 	case "ctrl+shift+space":
-		return &PaletteChord{KeySpace, FlagControl | FlagShift}
+		return &Chord{KeySpace, FlagControl | FlagShift}
+	}
+	return nil
+}
+
+// ParseCaptureChord parses capture_shortcut, which saves the selection as
+// a prompt, nil for "none".
+func ParseCaptureChord(s string) *Chord {
+	switch s {
+	case "ctrl+opt+p":
+		return &Chord{KeyP, FlagControl | FlagAlternate}
+	case "ctrl+opt+s":
+		return &Chord{KeyS, FlagControl | FlagAlternate}
+	case "ctrl+shift+p":
+		return &Chord{KeyP, FlagControl | FlagShift}
 	}
 	return nil
 }
@@ -106,7 +123,8 @@ type Context struct {
 	lastTapFlag   Flags
 	tooSoonShown  bool
 	disabledShown bool
-	chord         *PaletteChord
+	chord         *Chord
+	captureChord  *Chord
 	conflictDelay int
 	timer         *time.Timer
 	timerToken    uint64
@@ -333,7 +351,7 @@ func (c *Context) SetMatches(matches []model.Match) {
 	c.buffer.Clear()
 	var triggers []string
 	for _, m := range matches {
-		if m.Enabled {
+		if m.Enabled && m.Trigger != "" {
 			triggers = append(triggers, m.Trigger)
 		}
 	}
@@ -349,6 +367,7 @@ func (c *Context) SetConfig(cfg model.Config) {
 	c.toggleShort = cfg.ToggleShortcut
 	c.hudShort = cfg.HUDShortcut
 	c.chord = ParsePaletteChord(cfg.PaletteShortcut)
+	c.captureChord = ParseCaptureChord(cfg.CaptureShortcut)
 	c.conflictDelay = cfg.ConflictResolveDelayMs
 	if wasDisabled && c.enabled {
 		c.disabledShown = false
@@ -358,13 +377,23 @@ func (c *Context) SetConfig(cfg model.Config) {
 // PaletteChord reports whether a key down is the palette's shortcut, and
 // drops a pending match when it is.
 func (c *Context) PaletteChord(keyCode uint16, flags Flags) bool {
+	return c.isChord(c.chord, keyCode, flags, "palette-chord")
+}
+
+// CaptureChord reports whether a key down is the shortcut that saves the
+// selection as a prompt, and drops a pending match when it is.
+func (c *Context) CaptureChord(keyCode uint16, flags Flags) bool {
+	return c.isChord(c.captureChord, keyCode, flags, "capture-chord")
+}
+
+func (c *Context) isChord(chord *Chord, keyCode uint16, flags Flags, reason string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.chord == nil {
+	if chord == nil {
 		return false
 	}
-	if keyCode == c.chord.KeyCode && flags&modifierMask == c.chord.Modifiers {
-		c.notePendingDrop("palette-chord")
+	if keyCode == chord.KeyCode && flags&modifierMask == chord.Modifiers {
+		c.notePendingDrop(reason)
 		c.resetMatcher()
 		return true
 	}

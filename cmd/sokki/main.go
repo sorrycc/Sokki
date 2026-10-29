@@ -144,6 +144,7 @@ func (a *app) ready() {
 		HUDRequested:       func() { a.post(a.hud.toggle) },
 		HUDEvent:           func(ev model.HUDEvent) { a.post(func() { a.recordEvent(ev) }) },
 		PaletteRequested:   func() { a.post(a.palette.toggle) },
+		CaptureRequested:   func() { a.post(a.palette.capture) },
 		Expanded: func(m model.Match, saved int, fromPalette bool) {
 			a.post(func() { a.logUse(m, saved, fromPalette) })
 		},
@@ -340,7 +341,7 @@ func (a *app) recordEvent(ev model.HUDEvent) {
 // it went to.
 func (a *app) logUse(m model.Match, saved int, fromPalette bool) {
 	id, name := macos.FrontmostApp()
-	a.usage.Log(usage.Event{Trigger: m.Trigger, Palette: fromPalette, App: id, AppName: name, Saved: saved})
+	a.usage.Log(usage.Event{Trigger: m.Key(), Palette: fromPalette, App: id, AppName: name, Saved: saved})
 	a.settings.invalidate()
 }
 

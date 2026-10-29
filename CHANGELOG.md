@@ -8,6 +8,13 @@ The update window shows the section of the version it offers: every release need
 
 ## Unreleased
 
+- A match's trigger is now optional: a match without one is a prompt, inserted from the palette.
+- `⌘N` in the palette opens a **New Prompt** form filled with the selected text, or else the clipboard.
+- The New Prompt form saves to `prompts.yml` with `⌘↵`, and `⌘E` moves it to the full editor.
+- A new **Save selection as prompt** shortcut in **Settings → Shortcuts** saves selected text in one keystroke.
+- **New Prompt from Selection** in the menu bar menu does the same, with **Undo** and **Edit…** after.
+- `⌘C` in the palette copies the chosen match with its variables filled in, instead of typing it.
+- Prompts show a **Palette** badge where a trigger would be, and Insights counts their uses.
 - **Settings → Insights** charts your expansions of the past 7 days, with today against the average.
 - Insights counts the characters your matches saved you and the typing time that comes to.
 - Insights ranks your most used triggers and the apps you expand in, and splits typed from palette use.
@@ -18,7 +25,7 @@ The update window shows the section of the version it offers: every release need
 - **Settings** is redesigned like System Settings, with a sidebar of match files and grouped setting cards.
 - New settings for the Recent Activity shortcut and the delay before a shorter trigger expands.
 - The palette shows each match's label, trigger and preview, with its keys along the bottom.
-- In the palette, `Escape` clears the search before closing, and `⌘N` makes a match of what was typed.
+- In the palette, `Escape` clears the search before closing.
 - The palette shows in bold where the search matched, and when the chosen match was last used.
 - The match editor puts trigger and label side by side and previews the replacement with variables filled.
 - The match editor warns when another match has the same trigger.

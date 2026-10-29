@@ -41,15 +41,15 @@ func NewStore(d Dir) *Store { return &Store{Dir: d, Config: model.DefaultConfig(
 // Load reads everything again.
 func (s *Store) Load() {
 	r := s.Dir.Load()
-	// A match keeps its ID across loads, by its file and trigger, so that
-	// a list's choice and an editor open on it survive the reload that
+	// A match keeps its ID across loads, by its file and key, so that a
+	// list's choice and an editor open on it survive the reload that
 	// follows every save.
 	ids := map[[2]string]int64{}
 	for _, m := range s.Matches {
-		ids[[2]string{m.SourceFile, m.Trigger}] = m.ID
+		ids[[2]string{m.SourceFile, m.Key()}] = m.ID
 	}
 	for i, m := range r.Matches {
-		if id, ok := ids[[2]string{m.SourceFile, m.Trigger}]; ok {
+		if id, ok := ids[[2]string{m.SourceFile, m.Key()}]; ok {
 			r.Matches[i].ID = id
 		}
 	}
@@ -113,6 +113,17 @@ func (s *Store) Match(id int64) (model.Match, bool) {
 	return model.Match{}, false
 }
 
+// WithKey returns the match whose Key is key, of any file: loading keeps
+// one match of a key.
+func (s *Store) WithKey(key string) (model.Match, bool) {
+	for _, m := range s.Matches {
+		if m.Key() == key {
+			return m, true
+		}
+	}
+	return model.Match{}, false
+}
+
 // Add adds a match, to default.yml unless it names a file.
 func (s *Store) Add(m model.Match) {
 	if m.SourceFile == "" {
@@ -167,9 +178,10 @@ func (s *Store) save() {
 	s.changed()
 }
 
-// Recency keeps when each trigger was last used, typed or from the palette, in
+// Recency keeps when each match was last used, typed or from the palette, in
 // recency.json, written a second after the last use. It is keyed by
-// trigger since matches get new IDs at every load.
+// the match's Key, its trigger when it has one, since matches get new IDs
+// at every load.
 type Recency struct {
 	path    string
 	mu      sync.Mutex
@@ -197,19 +209,19 @@ func (r *Recency) Snapshot() map[string]time.Time {
 	return out
 }
 
-// Last returns when trigger was last used.
-func (r *Recency) Last(trigger string) (time.Time, bool) {
+// Last returns when the match of key was last used.
+func (r *Recency) Last(key string) (time.Time, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	t, ok := r.used[trigger]
+	t, ok := r.used[key]
 	return t, ok
 }
 
-// Bump marks trigger used now.
-func (r *Recency) Bump(trigger string) {
+// Bump marks the match of key used now.
+func (r *Recency) Bump(key string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.used[trigger] = time.Now().UTC().Truncate(time.Second)
+	r.used[key] = time.Now().UTC().Truncate(time.Second)
 	if r.pending != nil {
 		r.pending.Stop()
 	}

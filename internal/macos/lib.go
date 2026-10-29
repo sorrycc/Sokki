@@ -2,8 +2,9 @@
 
 // Package macos binds the parts of macOS that MyGo leaves out and Sokki
 // needs: a keyboard event tap, synthesized key events, the Accessibility
-// permission, secure input, the frontmost app and the pasteboard. It calls
-// the system frameworks with purego, without cgo, as MyGo does.
+// permission, secure input, the frontmost app, its selected text and the
+// pasteboard. It calls the system frameworks with purego, without cgo, as
+// MyGo does.
 package macos
 
 import (
@@ -34,6 +35,8 @@ var (
 	cfMachPortCreateRLSource  func(alloc, port uintptr, order int) uintptr
 	cfMachPortInvalidate      func(port uintptr)
 	cfDictionaryCreate        func(alloc uintptr, keys, values unsafe.Pointer, n int, keyCB, valueCB uintptr) uintptr
+	cfGetTypeID               func(ref uintptr) uintptr
+	cfStringGetTypeID         func() uintptr
 	kCFRunLoopCommonModes     uintptr
 	kCFBooleanTrue            uintptr
 	kCFTypeDictionaryKeyCBs   uintptr
@@ -53,6 +56,9 @@ var (
 	axIsProcessTrusted            func() bool
 	axIsProcessTrustedWithOptions func(options uintptr) bool
 	kAXTrustedCheckOptionPrompt   uintptr
+	axUIElementCreateApplication  func(pid int32) uintptr
+	axUIElementCopyAttributeValue func(element, attribute uintptr, value *uintptr) int32
+	axUIElementSetTimeout         func(element uintptr, seconds float32) int32
 
 	// Carbon
 	isSecureEventInputEnabled func() bool
@@ -98,6 +104,8 @@ func load() error {
 		purego.RegisterLibFunc(&cfMachPortCreateRLSource, cf, "CFMachPortCreateRunLoopSource")
 		purego.RegisterLibFunc(&cfMachPortInvalidate, cf, "CFMachPortInvalidate")
 		purego.RegisterLibFunc(&cfDictionaryCreate, cf, "CFDictionaryCreate")
+		purego.RegisterLibFunc(&cfGetTypeID, cf, "CFGetTypeID")
+		purego.RegisterLibFunc(&cfStringGetTypeID, cf, "CFStringGetTypeID")
 		kCFRunLoopCommonModes = deref(cf, "kCFRunLoopCommonModes")
 		kCFBooleanTrue = deref(cf, "kCFBooleanTrue")
 		kCFTypeDictionaryKeyCBs = sym(cf, "kCFTypeDictionaryKeyCallBacks")
@@ -116,6 +124,9 @@ func load() error {
 		purego.RegisterLibFunc(&axIsProcessTrusted, as, "AXIsProcessTrusted")
 		purego.RegisterLibFunc(&axIsProcessTrustedWithOptions, as, "AXIsProcessTrustedWithOptions")
 		kAXTrustedCheckOptionPrompt = deref(as, "kAXTrustedCheckOptionPrompt")
+		purego.RegisterLibFunc(&axUIElementCreateApplication, as, "AXUIElementCreateApplication")
+		purego.RegisterLibFunc(&axUIElementCopyAttributeValue, as, "AXUIElementCopyAttributeValue")
+		purego.RegisterLibFunc(&axUIElementSetTimeout, as, "AXUIElementSetMessagingTimeout")
 
 		purego.RegisterLibFunc(&isSecureEventInputEnabled, carbon, "IsSecureEventInputEnabled")
 
