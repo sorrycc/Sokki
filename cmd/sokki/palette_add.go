@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/config"
+	"sokki/internal/engine"
 	"sokki/internal/model"
 )
 
@@ -19,10 +20,12 @@ import (
 type promptForm struct {
 	label, trigger, body string
 	file                 string
-	// source says where body came from, "" when it came from nowhere.
-	source  string
-	labelIn ui.Handle
-	bodyIn  ui.Handle
+	// source says where body came from, "" when it came from nowhere,
+	// and sourceIcon shows which.
+	source     string
+	sourceIcon *ui.SVG
+	labelIn    ui.Handle
+	bodyIn     ui.Handle
 }
 
 // match is the prompt as the form has it.
@@ -56,12 +59,12 @@ func (p *palette) quickAdd() {
 	text, app := p.selectedText()
 	switch {
 	case strings.TrimSpace(text) != "":
-		f.body, f.source = text, "From the selection"
+		f.body, f.source, f.sourceIcon = text, "From the selection", iconCursor
 		if app != "" {
 			f.source += " in " + app
 		}
 	case strings.TrimSpace(p.clipboard) != "":
-		f.body, f.source = p.clipboard, "From the clipboard"
+		f.body, f.source, f.sourceIcon = p.clipboard, "From the clipboard", iconClip
 	default:
 		f.body, f.source = "", ""
 	}
@@ -92,7 +95,7 @@ func (p *palette) addProblem() string {
 }
 
 // saveAdd saves the form's prompt and goes back to the search, the new
-// prompt chosen.
+// prompt chosen and marked, the footer saying where it went.
 func (p *palette) saveAdd(c *ui.Context) {
 	if p.addProblem() != "" {
 		return
@@ -104,7 +107,7 @@ func (p *palette) saveAdd(c *ui.Context) {
 	p.filter()
 	p.chooseID(m.ID)
 	p.input.Focus()
-	c.Toast("Saved to " + m.SourceFile)
+	p.flash = flash{text: "Saved to " + m.SourceFile, id: m.ID, until: c.Now().Add(flashFor)}
 }
 
 // openAddInEditor carries the form over to the editor, for more room.
@@ -113,9 +116,7 @@ func (p *palette) openAddInEditor() {
 	p.a.editor.compose(p.add.match())
 }
 
-func (p *palette) addView(c *ui.Context) {
-	t := c.Theme()
-	f := &p.add
+func (p *palette) addKeys(c *ui.Context) {
 	if c.Shortcut(0, ui.KeyEscape) {
 		p.mode = modeSearch
 		p.input.Focus()
@@ -124,69 +125,104 @@ func (p *palette) addView(c *ui.Context) {
 		p.saveAdd(c)
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyE, p.openAddInEditor)
+}
+
+func (p *palette) addView(c *ui.Context) {
+	t := c.Theme()
+	f := &p.add
 	problem := p.addProblem()
 
-	ui.Column(c).Fill().Radius(14).Border(0.5, t.Border).Clip().Children(func() {
-		ui.Row(c).Padding(14, 18).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(28, 28).Radius(7).Background(t.Accent.Alpha(0.12)).Center().Shrink(0).Children(func() {
-				ui.Icon(c, iconPrompt).FontSize(14).TextColor(t.Accent)
+	ui.Row(c).Padding(14, 18).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Size(28, 28).Radius(7).Background(t.Accent.Alpha(0.12)).Center().Shrink(0).Children(func() {
+			ui.Icon(c, iconPrompt).FontSize(14).TextColor(t.Accent)
+		})
+		ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
+			ui.Text(c, "New Prompt").FontSize(15).Bold().SingleLine()
+			caption(c, "Saved to "+f.file+" · found in the palette").SingleLine().Ellipsis("…")
+		})
+		ui.Button(c, "Open in Editor").OnClick(p.openAddInEditor)
+		ui.PrimaryButton(c, "Save").Disabled(problem != "").OnClick(func() { p.saveAdd(c) })
+	})
+	ui.Divider(c)
+	ui.Column(c).Grow(1).Shrink(1).Padding(14, 18).Gap(12).Children(func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
+			labeled(c, "Label", func() {
+				ui.TextInput(c, &f.label).Bind(&f.labelIn).Label("Label").Placeholder("Optional — else its first line")
+			}).Grow(1.6).Basis(0)
+			labeled(c, "Trigger", func() {
+				ui.TextInput(c, &f.trigger).Label("Trigger").Placeholder("Optional, as ;review").Font("monospace")
+			}).Grow(1).Basis(0)
+		})
+		ui.Column(c).Gap(6).Grow(1).Shrink(1).Children(func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Prompt").FontSize(12).FontWeight(600)
+				ui.Spacer(c)
+				if f.source != "" {
+					sourcePill(c, f.sourceIcon, f.source)
+				}
 			})
-			ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
-				ui.Text(c, "New Prompt").FontSize(15).Bold().SingleLine()
-				caption(c, "Saved to "+f.file+" · found in the palette").SingleLine().Ellipsis("…")
+			ui.TextArea(c, &f.body).Bind(&f.bodyIn).Label("Prompt").Placeholder("What the prompt says").
+				Font("monospace").Grow(1).MinHeight(120).TextRanges(variableRanges(c, f.body)...)
+			ui.Row(c).Gap(6).AlignItems(ui.Center).MinHeight(16).Children(func() {
+				if problem != "" && strings.TrimSpace(f.body) != "" {
+					c.Key(problem)
+					ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(1).Transition(fadeTransition).Children(func() {
+						ui.Icon(c, iconWarning).FontSize(12).TextColor(t.Warning)
+						caption(c, problem).SingleLine().Ellipsis("…").Shrink(1)
+					})
+				}
+				ui.Spacer(c)
+				caption(c, bodyStats(f.body)).FontFeatures("tnum").SingleLine().Shrink(0)
 			})
 		})
-		ui.Divider(c)
-		ui.Column(c).Grow(1).Shrink(1).Padding(14, 18).Gap(12).Children(func() {
-			ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
-				labeled(c, "Label", func() {
-					ui.TextInput(c, &f.label).Bind(&f.labelIn).Label("Label").Placeholder("Optional — else its first line")
-				}).Grow(1.6).Basis(0)
-				labeled(c, "Trigger", func() {
-					ui.TextInput(c, &f.trigger).Label("Trigger").Placeholder("Optional, as ;review").Font("monospace")
-				}).Grow(1).Basis(0)
-			})
-			ui.Column(c).Gap(6).Grow(1).Shrink(1).Children(func() {
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, "Prompt").FontSize(12).FontWeight(600)
-					ui.Spacer(c)
-					if f.source != "" {
-						caption(c, f.source).SingleLine().Ellipsis("…").Shrink(1)
-					}
-				})
-				ui.TextArea(c, &f.body).Bind(&f.bodyIn).Label("Prompt").Placeholder("What the prompt says").
-					Font("monospace").Grow(1).MinHeight(120).TextRanges(variableRanges(c, f.body)...)
-			})
-			if problem != "" && strings.TrimSpace(f.body) != "" {
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, iconWarning).FontSize(12).TextColor(t.Warning)
-					caption(c, problem).Wrap().Shrink(1)
-				})
-			}
-		})
-		ui.Divider(c)
-		paletteFooter(c, func() {
-			if problem == "" {
-				hint(c, "⌘↵", "Save")
-			}
-			hint(c, "⌘E", "Open in Editor")
-			hint(c, "esc", "Back")
-		})
+	})
+	ui.Divider(c)
+	p.footer(c, func() {
+		if problem == "" {
+			hint(c, "⌘↵", "Save")
+		}
+		hint(c, "⌘E", "Open in Editor")
+		hint(c, "esc", "Back")
 	})
 }
 
+// sourcePill says where the form's text came from, with icon.
+func sourcePill(c *ui.Context, icon *ui.SVG, text string) {
+	t := c.Theme()
+	ui.Row(c).Gap(5).AlignItems(ui.Center).Padding(2, 8).Radius(10).Background(t.Text.Alpha(0.05)).Shrink(1).Children(func() {
+		if icon != nil {
+			ui.Icon(c, icon).FontSize(11).TextColor(t.TextMuted)
+		}
+		caption(c, text).SingleLine().Ellipsis("…").Shrink(1)
+	})
+}
+
+// bodyStats counts a prompt's characters and variables.
+func bodyStats(body string) string {
+	s := plural(utf8.RuneCountInString(body), "character", "characters")
+	if n := len(engine.Variables(body)); n > 0 {
+		s += " · " + plural(n, "variable", "variables")
+	}
+	return s
+}
+
 // savedHeight is the palette's height while it says what the capture
-// shortcut saved, and savedFor how long it says it.
+// shortcut saved or ⌘C copied, savedFor how long it says it saved and
+// copiedFor that it copied.
 const (
 	savedHeight = 64
 	savedFor    = 3 * time.Second
+	copiedFor   = 1500 * time.Millisecond
 )
 
 // capture is what the capture shortcut did: the prompt it saved, or
-// nothing, as nothing was selected.
+// nothing, as nothing was selected; or, copied set, what ⌘C copied.
 type capture struct {
-	saved model.Match
-	ok    bool
+	saved  model.Match
+	ok     bool
+	copied string
+	// shown is how long it says so.
+	shown time.Duration
 	// gen counts the captures, so that the hiding of one leaves the
 	// next alone; kept, the pointer over it, stops it hiding.
 	gen  int
@@ -198,12 +234,20 @@ type capture struct {
 // without taking the keyboard from the app.
 func (p *palette) capture() {
 	p.captureNow()
+	p.notify(savedFor)
+}
+
+// notify shows what p.captured says for d, unless the pointer goes over
+// it, without taking the keyboard from the app.
+func (p *palette) notify(d time.Duration) {
+	p.captured.shown = d
 	p.place(savedHeight)
 	p.mode = modeSaved
+	p.opened++
 	p.win.ShowInactive()
 	p.win.Invalidate()
 	gen := p.captured.gen
-	time.AfterFunc(savedFor, func() {
+	time.AfterFunc(d, func() {
 		p.a.post(func() {
 			if p.mode == modeSaved && p.captured.gen == gen && !p.captured.kept {
 				p.hide()
@@ -266,30 +310,36 @@ func (p *palette) editCapture() {
 
 func (p *palette) savedView(c *ui.Context) {
 	t := c.Theme()
-	if c.Shortcut(0, ui.KeyEscape) {
-		p.hide()
+	cp := &p.captured
+	icon, color, title, detail := iconMatched, t.Success, "“"+cp.saved.Label+"”",
+		"Saved as a prompt to "+config.PromptFile+" · find it in the palette"
+	switch {
+	case cp.copied != "":
+		icon, color, title, detail = iconCopy, t.Accent, "Copied to the clipboard", "“"+cp.copied+"”, its variables filled in"
+	case !cp.ok:
+		icon, color, title, detail = iconWarning, t.Warning, "Nothing selected",
+			"Select some text in an app, then press the shortcut again."
 	}
-	frame := ui.Column(c).Fill().Radius(14).Border(0.5, t.Border).Clip()
-	if frame.Hovered() {
-		p.captured.kept = true
-	}
-	frame.Children(func() {
-		ui.Row(c).Grow(1).Padding(0, 14, 0, 18).Gap(12).AlignItems(ui.Center).Children(func() {
-			icon, color, title, detail := iconMatched, t.Success, "Saved as a prompt",
-				"“"+p.captured.saved.Label+"” in "+config.PromptFile+" · find it in the palette"
-			if !p.captured.ok {
-				icon, color, title, detail = iconWarning, t.Warning, "Nothing selected",
-					"Select some text in an app, then press the shortcut again."
-			}
-			ui.Icon(c, icon).FontSize(20).TextColor(color).Shrink(0)
-			ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-				ui.Text(c, title).FontWeight(600).SingleLine()
-				caption(c, detail).SingleLine().Ellipsis("…")
-			})
-			if p.captured.ok {
-				ui.Button(c, "Undo").Label("Undo saving the prompt").OnClick(p.undoCapture)
-				ui.PrimaryButton(c, "Edit…").Label("Edit the prompt").OnClick(p.editCapture)
-			}
+	ui.Row(c).Grow(1).Padding(0, 14, 0, 14).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Size(32, 32).Radius(16).Background(color.Alpha(0.14)).Center().Shrink(0).Children(func() {
+			ui.Icon(c, icon).FontSize(17).TextColor(color)
 		})
+		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+			ui.Text(c, title).FontWeight(600).SingleLine().Ellipsis("…")
+			caption(c, detail).SingleLine().Ellipsis("…")
+		})
+		if cp.ok && cp.copied == "" {
+			ui.Button(c, "Undo").Label("Undo saving the prompt").OnClick(p.undoCapture)
+			ui.PrimaryButton(c, "Edit…").Label("Edit the prompt").OnClick(p.editCapture)
+		}
 	})
+	// How long it stays, unless the pointer keeps it.
+	if !cp.kept && cp.shown > 0 {
+		bar := ui.Box(c).Height(2).AlignSelf(ui.Start).Background(color.Alpha(0.45))
+		if seen := ui.Local(bar, "seen", func() bool { return false }); !*seen {
+			*seen = true
+			bar.Jump("left", 1)
+		}
+		bar.WidthPercent(100 * bar.AnimateWith("left", 0, cp.shown, ui.Linear))
+	}
 }

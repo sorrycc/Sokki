@@ -3,6 +3,7 @@ package main
 import (
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"sokki/internal/engine"
@@ -14,52 +15,88 @@ import (
 type rowMarks struct{ title, trigger []int }
 
 type scored struct {
-	m     model.Match
+	i     int // of the store's matches and of the palette's folded
 	score int
+	used  time.Time
 }
 
 // folded is a match's texts as the search compares them, folded once per
-// change of the matches rather than for every key typed in the search.
-type folded struct{ trigger, label, replace []rune }
+// change of the matches rather than for every key typed in the search,
+// with its key and the runes of all three in a mask.
+type folded struct {
+	trigger, label, replace []rune
+	key                     string
+	runes                   uint64
+}
+
+// runeMask has a bit for each rune of the texts, by its value modulo 64:
+// a query with a rune the mask lacks matches none of them, which skips
+// most matches at the first key.
+func runeMask(texts ...[]rune) uint64 {
+	var m uint64
+	for _, t := range texts {
+		for _, r := range t {
+			m |= 1 << (uint(r) & 63)
+		}
+	}
+	return m
+}
 
 // filter ranks the enabled matches by how well the query fits their
 // trigger, label (a little more) or replacement (a little less), then by
-// when they were last used, then by key.
+// when they were last used, then by key. A query that adds to the last
+// one searches only what that one found: none other can match it.
 func (p *palette) filter() {
-	if p.foldedGen != p.a.store.Gen || len(p.folded) != len(p.a.store.Matches) {
+	stale := p.foldedGen != p.a.store.Gen || len(p.folded) != len(p.a.store.Matches)
+	if stale {
 		p.foldedGen = p.a.store.Gen
 		p.folded = p.folded[:0]
 		for _, m := range p.a.store.Matches {
-			p.folded = append(p.folded, folded{engine.Fold(m.Trigger), engine.Fold(m.Label), engine.Fold(head(m.Replace, 200))})
+			f := folded{trigger: engine.Fold(m.Trigger), label: engine.Fold(m.Label), replace: engine.Fold(head(m.Replace, 200)), key: m.Key()}
+			f.runes = runeMask(f.trigger, f.label, f.replace)
+			p.folded = append(p.folded, f)
 		}
 	}
 	q := engine.Fold(strings.TrimSpace(p.query))
+	narrow := !stale && len(p.q) > 0 && len(q) > len(p.q) && slices.Equal(q[:len(p.q)], p.q)
 	p.q = q
 	clear(p.rowMarks)
 	recent := p.a.recency.Snapshot()
-	found := p.found[:0]
-	for i, m := range p.a.store.Matches {
-		if !m.Enabled {
-			continue
+	qRunes := runeMask(q)
+	found := p.spare[:0]
+	try := func(i int) {
+		f := &p.folded[i]
+		if f.runes&qRunes != qRunes {
+			return
 		}
-		if s, ok := matchScore(q, p.folded[i]); ok {
-			found = append(found, scored{m, s})
+		if s, ok := matchScore(q, *f); ok {
+			found = append(found, scored{i, s, recent[f.key]})
 		}
 	}
-	slices.SortStableFunc(found, func(a, b scored) int {
+	if narrow {
+		for _, s := range p.found {
+			try(s.i)
+		}
+	} else {
+		for i, m := range p.a.store.Matches {
+			if m.Enabled {
+				try(i)
+			}
+		}
+	}
+	slices.SortFunc(found, func(a, b scored) int {
 		if a.score != b.score {
 			return b.score - a.score
 		}
-		ta, tb := recent[a.m.Key()], recent[b.m.Key()]
-		if !ta.Equal(tb) {
-			return tb.Compare(ta)
+		if !a.used.Equal(b.used) {
+			return b.used.Compare(a.used)
 		}
-		return strings.Compare(a.m.Key(), b.m.Key())
+		return strings.Compare(p.folded[a.i].key, p.folded[b.i].key)
 	})
-	p.found = found
+	p.found, p.spare = found, p.found
 	p.results = p.results[:0]
 	for _, f := range found {
-		p.results = append(p.results, f.m)
+		p.results = append(p.results, p.a.store.Matches[f.i])
 	}
 	p.choose(0)
 }

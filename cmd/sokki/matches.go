@@ -203,7 +203,7 @@ func (l *matchList) view(c *ui.Context) {
 		if len(l.shown) == 0 {
 			ui.Column(c).Grow(1).Children(func() {
 				title, detail := l.emptyText()
-				emptyState(c, iconMatches, title, detail)
+				emptyState(c, iconMatches, title, detail, nil)
 			})
 		} else {
 			if l.listWidth == 0 {
@@ -382,7 +382,7 @@ func (l *matchList) detail(c *ui.Context) {
 	t := c.Theme()
 	m, ok := l.selected()
 	if !ok {
-		emptyState(c, iconMatches, "No Match Chosen", "Choose a match to see it whole.")
+		emptyState(c, iconMatches, "No Match Chosen", "Choose a match to see it whole.", nil)
 		return
 	}
 	ui.Column(c).Fill().Children(func() {

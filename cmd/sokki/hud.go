@@ -100,7 +100,7 @@ func (h *hudPanel) view(c *ui.Context) {
 		})
 		ui.Divider(c)
 		if len(h.events) == 0 {
-			emptyState(c, iconHistory, "No Recent Activity", "Type in another app: expansions and what blocked them show here.")
+			emptyState(c, iconHistory, "No Recent Activity", "Type in another app: expansions and what blocked them show here.", nil)
 			return
 		}
 		h.list.Key = func(i int) any { return h.events[i].ID }

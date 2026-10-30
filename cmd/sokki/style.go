@@ -49,6 +49,8 @@ var (
 	iconActivity = svgIcon("activity")
 	iconTimer    = svgIcon("timer")
 	iconPrompt   = svgIcon("message-square-text")
+	iconCursor   = svgIcon("text-cursor")
+	iconClip     = svgIcon("clipboard")
 )
 
 // appIcon returns Sokki's icon, decoded the first time it shows.
@@ -278,14 +280,20 @@ func pageHeader(c *ui.Context, title, subtitle string, end func()) {
 	})
 }
 
-// emptyState fills its parent with an icon, a title and a line under it.
-func emptyState(c *ui.Context, icon *ui.SVG, title, detail string) {
+// emptyState fills its parent with an icon on a tinted disc, a title, a
+// line under it and, when actions is set, the buttons it draws.
+func emptyState(c *ui.Context, icon *ui.SVG, title, detail string, actions func()) {
 	t := c.Theme()
 	ui.Column(c).Fill().Center().Gap(8).Padding(24).Children(func() {
-		ui.Icon(c, icon).FontSize(28).TextColor(t.TextMuted.Alpha(0.7))
+		ui.Box(c).Size(52, 52).Radius(26).Background(t.Text.Alpha(0.05)).Center().Margin(0, 0, 4, 0).Children(func() {
+			ui.Icon(c, icon).FontSize(24).TextColor(t.TextMuted)
+		})
 		ui.Text(c, title).FontSize(14).FontWeight(600).TextAlign(ui.Center)
 		if detail != "" {
-			muted(c, detail).Wrap().TextAlign(ui.Center).MaxWidth(280)
+			muted(c, detail).Wrap().TextAlign(ui.Center).MaxWidth(300)
+		}
+		if actions != nil {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(8, 0, 0, 0).Children(actions)
 		}
 	})
 }

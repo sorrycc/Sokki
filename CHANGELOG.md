@@ -14,6 +14,13 @@ The update window shows the section of the version it offers: every release need
 - A new **Save selection as prompt** shortcut in **Settings → Shortcuts** saves selected text in one keystroke.
 - **New Prompt from Selection** in the menu bar menu does the same, with **Undo** and **Edit…** after.
 - `⌘C` in the palette copies the chosen match with its variables filled in, instead of typing it.
+- After `⌘C`, a small banner confirms what was copied.
+- Saving a New Prompt marks it **New** in the list, and the palette footer says where it was saved.
+- The New Prompt form has **Save** and **Open in Editor** buttons, and counts characters and variables.
+- The palette fades in as it opens and slides between search and the New Prompt form.
+- With no results, the palette offers **Save as a New Prompt**; with no matches, a **New Prompt** button.
+- The capture banner shows the prompt's name first, and a line that runs out until it hides.
+- Palette search is faster as you type, especially with many matches.
 - Prompts show a **Palette** badge where a trigger would be, and Insights counts their uses.
 - **Settings → Insights** charts your expansions of the past 7 days, with today against the average.
 - Insights counts the characters your matches saved you and the typing time that comes to.

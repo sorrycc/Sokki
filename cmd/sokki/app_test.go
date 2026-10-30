@@ -46,6 +46,9 @@ func testApp(t testing.TB) *app {
 	return a
 }
 
+// settle is long enough for the palette's motion to end.
+const settle = 300 * time.Millisecond
+
 // shot saves what the tester shows to $SOKKI_SHOTS/name.png, when set.
 func shot(t testing.TB, tt *ui.Tester, name string) {
 	dir := os.Getenv("SOKKI_SHOTS")
@@ -665,6 +668,7 @@ func TestPaletteQuickAddsAPrompt(t *testing.T) {
 	if !tt.HasText("New Prompt") || !tt.HasText("From the selection in Safari") {
 		t.Fatalf("form: %q", tt.Texts())
 	}
+	tt.Advance(settle)
 	shot(t, tt, "palette-new-prompt")
 	tt.Key(ui.Cmd, ui.KeyEnter)
 	tt.Frame()
@@ -680,6 +684,16 @@ func TestPaletteQuickAddsAPrompt(t *testing.T) {
 	}
 	if !tt.HasText("Palette") {
 		t.Fatalf("no Palette badge: %q", tt.Texts())
+	}
+	// The footer says where it went, and the row is marked, for a moment.
+	if !tt.HasText("Saved to prompts.yml") || !slices.Contains(tt.Texts(), "New") {
+		t.Fatalf("no confirmation: %q", tt.Texts())
+	}
+	tt.Advance(settle)
+	shot(t, tt, "palette-saved")
+	tt.Advance(flashFor)
+	if tt.HasText("Saved to prompts.yml") || slices.Contains(tt.Texts(), "New") {
+		t.Fatalf("confirmation stayed: %q", tt.Texts())
 	}
 	// It is in its own file, and loads again.
 	a.store.Load()
@@ -741,12 +755,43 @@ func TestCaptureSavesTheSelection(t *testing.T) {
 	if !tt.HasText("Saved as a prompt") || !tt.HasText("Undo") {
 		t.Fatalf("saved: %q", tt.Texts())
 	}
+	tt.Advance(settle)
 	shot(t, tt, "palette-captured")
 	if err := tt.Click("Undo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := a.store.WithKey(second); ok {
 		t.Fatal("undo kept the prompt")
+	}
+
+	// ⌘C says what it copied, without Undo.
+	p.captured = capture{gen: p.captured.gen + 1, copied: "Hi there!", shown: copiedFor}
+	p.opened++
+	tt.Frame()
+	if !tt.HasText("Copied to the clipboard") || tt.HasText("Undo") {
+		t.Fatalf("copied: %q", tt.Texts())
+	}
+	tt.Advance(settle)
+	shot(t, tt, "palette-copied")
+}
+
+func TestPaletteWithoutMatches(t *testing.T) {
+	a := testApp(t)
+	p := a.palette
+	a.store.Matches = nil
+	a.store.Gen++
+	p.filter()
+	p.selectedText = func() (string, string) { return "", "" }
+	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	if !tt.HasText("No Prompts Yet") {
+		t.Fatalf("empty: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-no-prompts")
+	if err := tt.Click("New Prompt"); err != nil {
+		t.Fatal(err)
+	}
+	if p.mode != modeAdd {
+		t.Fatal("New Prompt did not open the form")
 	}
 }
 

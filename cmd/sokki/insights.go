@@ -41,7 +41,7 @@ func (s *settingsWindow) insights(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
 			ui.Box(c).Height(max(c.TitleBar().Height, 12)).DragWindow()
 			emptyState(c, iconInsights, "No expansions yet",
-				"Type your triggers for a while: how often you use each, and where, shows up here.")
+				"Type your triggers for a while: how often you use each, and where, shows up here.", nil)
 		})
 		return
 	}
