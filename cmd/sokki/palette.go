@@ -17,29 +17,10 @@ import (
 
 const paletteWidth, paletteHeight = 760, 460
 
-// The palette's motion, short enough never to hold up a key: how it comes
-// in as it shows, how one mode takes over from another, how a line of
-// news fades in, and how long the footer says what was done. The choice
-// and its preview change at once, as fast as the keys.
-var (
-	openTransition = ui.ElementTransition{
-		Duration: 160 * time.Millisecond, Colors: true,
-		Enter: &ui.Motion{Opacity: 0.4, Scale: 0.985, Y: -4},
-	}
-	modeTransition = ui.ElementTransition{
-		Duration: 180 * time.Millisecond, Colors: true,
-		Enter: &ui.Motion{Y: 6},
-	}
-	fadeTransition = ui.ElementTransition{
-		Duration: 120 * time.Millisecond, Colors: true,
-		Enter: &ui.Motion{Opacity: 0.5},
-	}
-	flashTransition = ui.ElementTransition{
-		Duration: 200 * time.Millisecond, Colors: true,
-		Enter: &ui.Motion{X: -8},
-	}
-	flashFor = 2500 * time.Millisecond
-)
+// flashFor is how long the footer says what was done. The palette's
+// motion is style.go's; the choice and its preview change at once, as
+// fast as the keys.
+const flashFor = 2500 * time.Millisecond
 
 // paletteMode is what the palette shows.
 type paletteMode int
@@ -356,22 +337,9 @@ func (p *palette) row(c *ui.Context, i int) {
 	m := p.results[i]
 	t := c.Theme()
 	chosen := i == p.chosen
-	text, mutedColor := t.Text, t.TextMuted
-	if chosen {
-		text, mutedColor = t.AccentText, t.AccentText.Alpha(0.78)
-	}
+	text, mutedColor := rowColors(t, chosen)
 	row := ui.Row(c).Padding(7, 10).Gap(10).AlignItems(ui.Center).Radius(8)
-	// The choice moves at once, as fast as the keys; the pointer's hover
-	// fades in and out.
-	if chosen {
-		row.Background(t.Accent.Alpha(0.9))
-	} else {
-		hover := t.Text.Alpha(0)
-		if row.Hovered() {
-			hover = t.Text.Alpha(0.05)
-		}
-		row.Background(row.AnimateColor("hover", hover, hoverAnim))
-	}
+	rowFill(c, row, chosen)
 	row.Children(func() {
 		title := matchTitle(m)
 		marks := p.rowMarksOf(m, title)
@@ -414,7 +382,7 @@ func (p *palette) preview(c *ui.Context) {
 	}
 	ui.Column(c).Fill().Children(func() {
 		ui.Column(c).Padding(16, 18, 12, 18).Gap(8).Children(func() {
-			ui.Text(c, matchTitle(m)).FontSize(15).Bold().SingleLine().Ellipsis("…")
+			heading(c, matchTitle(m)).SingleLine().Ellipsis("…")
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				triggerCap(c, m, false, nil).Shrink(1).Ellipsis("…")
 				if m.SourceFile != "" {

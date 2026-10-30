@@ -130,9 +130,7 @@ func (h *hudPanel) row(c *ui.Context, i int) {
 	ev := h.events[i]
 	t := c.Theme()
 	row := ui.Row(c).Padding(8, 10).Gap(10).AlignItems(ui.Start).Radius(8)
-	if row.Hovered() {
-		row.Background(t.Text.Alpha(0.05))
-	}
+	rowFill(c, row, false)
 	row.Children(func() {
 		verdictIcon(c, ev.Verdict)
 		ui.Column(c).Grow(1).Shrink(1).Gap(3).Children(func() {

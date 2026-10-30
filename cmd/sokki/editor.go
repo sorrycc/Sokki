@@ -43,7 +43,9 @@ type editorWindow struct {
 	triggerIn  ui.Handle
 	replaceIn  ui.Handle
 
-	title string
+	// verb is what the editor does, New, Edit or Duplicate, to a match
+	// or, while the trigger is empty, a prompt.
+	verb string
 	// selStart and selEnd are the selection of the replacement, in runes,
 	// as of when it last had the focus (selKnown), where a variable is
 	// inserted; caret, when caretSet, is where to put the caret next frame.
@@ -64,7 +66,7 @@ func (e *editorWindow) edit(m model.Match) {
 	if e.file == "" {
 		e.file = config.DefaultMatchFile
 	}
-	e.open("Edit Match")
+	e.open("Edit")
 }
 
 func (e *editorWindow) create(file, trigger string) {
@@ -75,7 +77,7 @@ func (e *editorWindow) create(file, trigger string) {
 	}
 	e.replace, e.label, e.enabled = "", "", true
 	e.file = file
-	e.open("New Match")
+	e.open("New")
 }
 
 // compose opens a new prompt with m's fields, as the palette's New Prompt
@@ -87,7 +89,7 @@ func (e *editorWindow) compose(m model.Match) {
 	if e.file == "" {
 		e.file = config.PromptFile
 	}
-	e.open("New Prompt")
+	e.open("New")
 }
 
 // duplicate opens a new match with m's fields, to save under another
@@ -99,7 +101,7 @@ func (e *editorWindow) duplicate(m model.Match) {
 	if e.file == "" {
 		e.file = config.DefaultMatchFile
 	}
-	e.open("Duplicate Match")
+	e.open("Duplicate")
 }
 
 // current is the match as edited.
@@ -128,10 +130,22 @@ func (e *editorWindow) requestClose() {
 	}
 }
 
-func (e *editorWindow) open(title string) {
+// isPrompt reports whether the match edited has no trigger: a prompt.
+func (e *editorWindow) isPrompt() bool { return triggerOf(e.trigger) == "" }
+
+// title is what the editor does, as "Edit Prompt", following the trigger
+// as it is typed or cleared.
+func (e *editorWindow) title() string {
+	if e.isPrompt() {
+		return e.verb + " Prompt"
+	}
+	return e.verb + " Match"
+}
+
+func (e *editorWindow) open(verb string) {
 	e.addingFile, e.newFile, e.extra = false, "", nil
 	e.confirmDiscard = false
-	e.title, e.selKnown, e.caretSet = title, false, false
+	e.verb, e.selKnown, e.caretSet = verb, false, false
 	e.previewOf = "\x00" // the clipboard may have changed: render again
 	e.orig = e.current()
 	if e.headless {
@@ -139,7 +153,7 @@ func (e *editorWindow) open(title string) {
 	}
 	if e.win == nil {
 		e.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:         title,
+			Title:         e.title(),
 			Width:         560,
 			Height:        540,
 			MinWidth:      460,
@@ -150,7 +164,7 @@ func (e *editorWindow) open(title string) {
 		})
 		e.a.hideOnClose(e.win, e.requestClose)
 	}
-	e.win.SetTitle(title)
+	e.win.SetTitle(e.title())
 	if !e.win.IsVisible() {
 		e.a.acquire()
 		e.win.Center()
@@ -334,8 +348,12 @@ func (e *editorWindow) view(c *ui.Context) {
 	if !e.addingFile && !e.confirmDiscard && c.Shortcut(0, ui.KeyEscape) {
 		e.requestClose()
 	}
+	noun := "match"
+	if e.isPrompt() {
+		noun = "prompt"
+	}
 	if ui.AlertDialog(c, &e.confirmDiscard, "Discard Changes?",
-		"Your edits to this match haven't been saved.", "Keep Editing", "Discard") == 1 {
+		"Your edits to this "+noun+" haven't been saved.", "Keep Editing", "Discard") == 1 {
 		e.close()
 	}
 	ui.Column(c).Fill().Children(func() {
@@ -349,27 +367,14 @@ func (e *editorWindow) view(c *ui.Context) {
 						}
 					}).Grow(1).Basis(0)
 					labeled(c, "Label", func() {
-						ui.TextInput(c, &e.label).Label("Label").Placeholder("Optional — names it in the palette")
+						placeholder := "Optional — names it in the palette"
+						if e.isPrompt() {
+							placeholder = "Names it in the palette — else its first line"
+						}
+						ui.TextInput(c, &e.label).Label("Label").Placeholder(placeholder)
 					}).Grow(1.4).Basis(0)
 				})
-				trigger := triggerOf(e.trigger)
-				if m, ok := e.conflict(); ok {
-					what := "has this trigger."
-					if trigger == "" {
-						what = "has this title. Give this one a label."
-					}
-					ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(-8, 0, 0, 0).Children(func() {
-						ui.Icon(c, iconWarning).FontSize(12).TextColor(t.Warning)
-						caption(c, "Another match in "+m.SourceFile+" "+what).Wrap().Shrink(1)
-					})
-				} else if e.triggerTooShort() && trigger != ":" {
-					caption(c, "A trigger needs at least 2 characters, so that it doesn't expand by accident.").
-						TextColor(t.Warning).Wrap().Margin(-8, 0, 0, 0)
-				} else if trigger == "" {
-					caption(c, "No trigger: a prompt, inserted from the palette.").Margin(-8, 0, 0, 0)
-				} else {
-					caption(c, "Type the trigger anywhere and Sokki replaces it. Leave it empty for a prompt.").Margin(-8, 0, 0, 0)
-				}
+				e.note(c)
 
 				ui.Column(c).Gap(6).Grow(1).Shrink(1).Children(func() {
 					ui.Row(c).AlignItems(ui.Center).Children(func() {
@@ -384,7 +389,7 @@ func (e *editorWindow) view(c *ui.Context) {
 						}).Label("Insert Variable")
 					})
 					ta := ui.TextArea(c, &e.replace).Bind(&e.replaceIn).Label("Replacement").
-						Placeholder("What the trigger types, or the prompt").
+						Placeholder(replacePlaceholder(e.isPrompt())).
 						Font("monospace").Grow(1).MinHeight(96).TextRanges(variableRanges(c, e.replace)...)
 					if e.caretSet {
 						ta.SetTextSelection(e.caret, e.caret)
@@ -439,17 +444,64 @@ func (e *editorWindow) header(c *ui.Context) {
 	t := c.Theme()
 	bar := c.TitleBar()
 	ui.Row(c).Height(max(bar.Height, 12)+44).Padding(max(bar.Height, 12), 20, 0, 20).Gap(10).AlignItems(ui.Center).DragWindow().Children(func() {
-		ui.Box(c).Size(30, 30).Radius(8).Background(t.Accent.Alpha(0.12)).Center().Shrink(0).Children(func() {
-			icon := iconPlus
-			if e.existing != 0 {
-				icon = iconPencil
-			}
-			ui.Icon(c, icon).FontSize(15).TextColor(t.Accent)
-		})
+		icon := iconPlus
+		switch {
+		case e.isPrompt():
+			icon = iconPrompt
+		case e.existing != 0:
+			icon = iconPencil
+		}
+		// A trigger typed or cleared turns a prompt into a match: its icon
+		// fades in.
+		c.Key(icon)
+		iconPlate(c, icon, t.Accent, 30).Transition(fadeTransition)
 		ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
-			ui.Text(c, e.title).FontSize(15).Bold().SingleLine()
-			caption(c, "Saved to "+e.file).SingleLine().Ellipsis("…")
+			heading(c, e.title()).SingleLine()
+			where := "Saved to " + e.file
+			if e.isPrompt() {
+				where += " · found in the palette"
+			}
+			caption(c, where).SingleLine().Ellipsis("…")
 		})
+	})
+}
+
+func replacePlaceholder(prompt bool) string {
+	if prompt {
+		return "The prompt, as the palette will insert it"
+	}
+	return "What the trigger types"
+}
+
+// note is the line under the trigger and the label: what is wrong with
+// them, or what the match does. It fades in as it changes from one to
+// another, not as each key is typed.
+func (e *editorWindow) note(c *ui.Context) {
+	t := c.Theme()
+	icon, color, text := iconKeyboard, t.TextMuted, "Type the trigger anywhere and Sokki replaces it. Leave it empty for a prompt."
+	shortcut := ""
+	if m, ok := e.conflict(); ok {
+		what := "has this trigger."
+		if e.isPrompt() {
+			what = "has this title. Give this one a label."
+		}
+		icon, color, text = iconWarning, t.Warning, "Another match in "+m.SourceFile+" "+what
+	} else if e.triggerTooShort() && triggerOf(e.trigger) != ":" {
+		icon, color, text = iconWarning, t.Warning, "A trigger needs at least 2 characters, so that it doesn't expand by accident."
+	} else if e.isPrompt() {
+		icon, text = iconPrompt, "No trigger: a prompt, inserted from the palette."
+		if title := e.current().Title(); e.label == "" && title != "" {
+			text = "No trigger: a prompt, in the palette as “" + truncate(title, 40) + "”"
+		}
+		shortcut = shortcutLabel(paletteOptions, e.a.store.Config.PaletteShortcut)
+	}
+	c.Key(icon)
+	ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(-8, 0, 0, 0).Transition(fadeTransition).Children(func() {
+		ui.Icon(c, icon).FontSize(12).TextColor(color).Shrink(0)
+		caption(c, text).Wrap().Shrink(1)
+		if shortcut != "" {
+			kbd(c, shortcut).Tooltip("Opens the palette")
+		}
 	})
 }
 

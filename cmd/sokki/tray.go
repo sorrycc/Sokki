@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"strings"
 	"syscall"
 
 	"github.com/egoist/mygo"
@@ -69,14 +70,6 @@ func (a *app) trayMenu() *mygo.Menu {
 	if s := shortcutLabel(toggleOptions, cfg.ToggleShortcut); s != "" {
 		enabled += "  (" + s + ")"
 	}
-	capture := "New Prompt from Selection"
-	if s := shortcutLabel(captureOptions, cfg.CaptureShortcut); s != "" {
-		capture += "  (" + s + ")"
-	}
-	search := "Search Matches…"
-	if s := shortcutLabel(paletteOptions, cfg.PaletteShortcut); s != "" {
-		search += "  (" + s + ")"
-	}
 	items = append(items,
 		&mygo.MenuItem{Label: enabled, Click: func(*mygo.MenuItem, *mygo.Window) {
 			a.store.Config.Enabled = !a.store.Config.Enabled
@@ -85,9 +78,12 @@ func (a *app) trayMenu() *mygo.Menu {
 			a.settings.invalidate()
 		}},
 		mygo.Separator(),
-		&mygo.MenuItem{Label: search, Click: click(a.palette.show)},
+		&mygo.MenuItem{Label: "Search Matches…", Accelerator: accelerator(cfg.PaletteShortcut), Click: click(a.palette.show)},
 		&mygo.MenuItem{Label: "New Match…", Click: click(func() { a.settings.matches.newMatch("") })},
-		&mygo.MenuItem{Label: capture, Click: click(a.palette.capture)},
+		// Reading the selection needs Accessibility access, as the
+		// shortcut does.
+		&mygo.MenuItem{Label: "New Prompt from Selection", Accelerator: accelerator(cfg.CaptureShortcut),
+			Disabled: !a.trusted, Click: click(a.palette.capture)},
 		&mygo.MenuItem{Label: "Recent Activity", Click: click(a.hud.toggle)},
 		mygo.Separator(),
 	)
@@ -120,6 +116,32 @@ func (a *app) trayMenu() *mygo.Menu {
 		&mygo.MenuItem{Label: "Quit Sokki", Accelerator: "Cmd+Q", Click: click(mygo.App.Quit)},
 	)
 	return mygo.NewMenu(items)
+}
+
+// accelerator is a shortcut of the settings, as "ctrl+opt+p", as the menu
+// shows it beside its item, as macOS draws ⌃⌥P; "" for none.
+func accelerator(value string) string {
+	if value == "" || value == "none" {
+		return ""
+	}
+	keys := strings.Split(value, "+")
+	for i, k := range keys {
+		switch k {
+		case "ctrl":
+			keys[i] = "Ctrl"
+		case "opt":
+			keys[i] = "Alt"
+		case "shift":
+			keys[i] = "Shift"
+		case "cmd":
+			keys[i] = "Cmd"
+		case "space":
+			keys[i] = "Space"
+		default:
+			keys[i] = strings.ToUpper(k)
+		}
+	}
+	return strings.Join(keys, "+")
 }
 
 // state is what Sokki is doing, as the menu bar and Settings say it.

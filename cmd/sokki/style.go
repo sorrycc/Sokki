@@ -63,6 +63,85 @@ var appIcon = sync.OnceValue(func() *ui.Bitmap {
 	return b
 })
 
+// Sokki's motion, one set for the palette, the editor, Matches and
+// Insights, short enough never to hold up a key: hover fades in
+// motionFast, what comes in takes motionBase, bars and numbers grow in
+// motionGrow, stagger apart. What a key chooses changes at once.
+const (
+	motionFast = 120 * time.Millisecond
+	motionBase = 180 * time.Millisecond
+	motionGrow = 240 * time.Millisecond
+	stagger    = 25 * time.Millisecond
+)
+
+var (
+	hoverAnim = ui.Animation{Duration: motionFast}
+	growAnim  = ui.Animation{Duration: motionGrow}
+	// openTransition is a panel coming in as it shows: the palette.
+	openTransition = ui.ElementTransition{
+		Duration: 160 * time.Millisecond, Colors: true,
+		Enter: &ui.Motion{Opacity: 0.4, Scale: 0.985, Y: -4},
+	}
+	// modeTransition is a view taking over from another in its place.
+	modeTransition = ui.ElementTransition{
+		Duration: motionBase, Colors: true,
+		Enter: &ui.Motion{Y: 6},
+	}
+	// fadeTransition is a line of news, or a hint that changed, fading in.
+	fadeTransition = ui.ElementTransition{
+		Duration: motionFast, Colors: true,
+		Enter: &ui.Motion{Opacity: 0.5},
+	}
+	// flashTransition is what was just done sliding into a footer.
+	flashTransition = ui.ElementTransition{
+		Duration: 200 * time.Millisecond, Colors: true,
+		Enter: &ui.Motion{X: -8},
+	}
+	// unfoldTransition is a part opening under its title.
+	unfoldTransition = ui.ElementTransition{
+		Duration: motionBase, Colors: true,
+		Enter: &ui.Motion{Y: -4},
+	}
+)
+
+// rowFill colors a row of a list: the accent's when chosen, at once, as
+// fast as the keys; a tint fading in under the pointer otherwise.
+func rowFill(c *ui.Context, row ui.Element, chosen bool) {
+	t := c.Theme()
+	if chosen {
+		row.Background(t.Accent)
+		return
+	}
+	hover := t.Text.Alpha(0)
+	if row.Hovered() {
+		hover = t.Text.Alpha(0.05)
+	}
+	row.Background(row.AnimateColor("hover", hover, hoverAnim))
+}
+
+// rowColors are the colors of a row's text and of what is under it, on
+// the accent when chosen.
+func rowColors(t *ui.Theme, chosen bool) (text, muted ui.Color) {
+	if chosen {
+		return t.AccentText, t.AccentText.Alpha(0.78)
+	}
+	return t.Text, t.TextMuted
+}
+
+// iconPlate is an icon on a rounded plate of its tint, as the editor's,
+// the New Prompt form's and the stat tiles' heads have it.
+func iconPlate(c *ui.Context, icon *ui.SVG, tint ui.Color, size float32) ui.Element {
+	return ui.Box(c).Size(size, size).Radius(size * 0.27).Background(tint.Alpha(0.13)).Center().Shrink(0).Children(func() {
+		ui.Icon(c, icon).FontSize(size * 0.55).TextColor(tint)
+	})
+}
+
+// heading is the title of what a pane shows: the palette's preview,
+// Matches' detail, the editor and the New Prompt form.
+func heading(c *ui.Context, s string) ui.Element {
+	return ui.Text(c, s).FontSize(15).Bold()
+}
+
 // keycap shows a trigger as a key would: monospaced, on a light plate,
 // in the accent's colors on a chosen row.
 func keycap(c *ui.Context, s string, chosen bool) ui.Element {
@@ -283,14 +362,29 @@ func pageHeader(c *ui.Context, title, subtitle string, end func()) {
 // emptyState fills its parent with an icon on a tinted disc, a title, a
 // line under it and, when actions is set, the buttons it draws.
 func emptyState(c *ui.Context, icon *ui.SVG, title, detail string, actions func()) {
+	var fn func()
+	if detail != "" {
+		fn = func() { emptyDetail(c, detail) }
+	}
+	emptyStateOf(c, icon, title, fn, actions)
+}
+
+// emptyDetail is a line of an empty state, under its title.
+func emptyDetail(c *ui.Context, s string) ui.Element {
+	return muted(c, s).Wrap().TextAlign(ui.Center).MaxWidth(300)
+}
+
+// emptyStateOf is an emptyState whose detail draws what is under the
+// title, as a keycap within its words.
+func emptyStateOf(c *ui.Context, icon *ui.SVG, title string, detail, actions func()) {
 	t := c.Theme()
 	ui.Column(c).Fill().Center().Gap(8).Padding(24).Children(func() {
 		ui.Box(c).Size(52, 52).Radius(26).Background(t.Text.Alpha(0.05)).Center().Margin(0, 0, 4, 0).Children(func() {
 			ui.Icon(c, icon).FontSize(24).TextColor(t.TextMuted)
 		})
 		ui.Text(c, title).FontSize(14).FontWeight(600).TextAlign(ui.Center)
-		if detail != "" {
-			muted(c, detail).Wrap().TextAlign(ui.Center).MaxWidth(300)
+		if detail != nil {
+			detail()
 		}
 		if actions != nil {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(8, 0, 0, 0).Children(actions)

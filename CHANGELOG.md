@@ -22,6 +22,12 @@ The update window shows the section of the version it offers: every release need
 - The capture banner shows the prompt's name first, and a line that runs out until it hides.
 - Palette search is faster as you type, especially with many matches.
 - Prompts show a **Palette** badge where a trigger would be, and Insights counts their uses.
+- **Matches** has an **All · Triggers · Prompts** bar to show only prompts, and **New** then makes one.
+- The match editor calls a match without a trigger a prompt, and says how it shows in the palette.
+- The menu bar menu shows the palette and capture shortcuts beside their items, as macOS draws them.
+- **New Prompt from Selection** is dimmed until Sokki has Accessibility access, which reading it needs.
+- The palette, editor, Matches and Insights share one look for rows, headings, icons and motion.
+- The Insights empty page shows the trigger to try as a key, and **By App** rows no longer light up on hover.
 - **Settings → Insights** charts your expansions of the past 7 days, with today against the average.
 - Insights counts the characters your matches saved you and the typing time that comes to.
 - Insights ranks your most used triggers and the apps you expand in, and splits typed from palette use.

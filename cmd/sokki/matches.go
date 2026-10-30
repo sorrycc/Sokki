@@ -21,6 +21,7 @@ import (
 type matchList struct {
 	a      *app
 	file   string // "" is every file
+	kind   int    // of the kinds: all, triggers or prompts
 	query  string
 	chosen int
 	search ui.Handle
@@ -44,18 +45,40 @@ type matchList struct {
 type filterKey struct {
 	gen         uint64
 	file, query string
+	kind        int
 	valid       bool
+}
+
+// The kinds of matches the list shows, as its scope bar names them.
+const (
+	kindAll = iota
+	kindTriggers
+	kindPrompts
+)
+
+var kindLabels = []string{"All", "Triggers", "Prompts"}
+
+// ofKind reports whether m is of the kind shown.
+func ofKind(m model.Match, kind int) bool {
+	switch kind {
+	case kindTriggers:
+		return m.Trigger != ""
+	case kindPrompts:
+		return m.Trigger == ""
+	}
+	return true
 }
 
 func (l *matchList) setFile(file string) {
 	if l.file != file {
 		l.file = file
 		l.chosen = 0
+		l.listState = ui.ListState{}
 	}
 }
 
 func (l *matchList) filter() {
-	key := filterKey{l.a.store.Gen, l.file, l.query, true}
+	key := filterKey{l.a.store.Gen, l.file, l.query, l.kind, true}
 	if key == l.key {
 		return
 	}
@@ -69,7 +92,7 @@ func (l *matchList) filter() {
 	q := strings.ToLower(strings.TrimSpace(l.query))
 	l.shown = l.shown[:0]
 	for i, m := range l.a.store.Matches {
-		if l.file != "" && m.SourceFile != l.file {
+		if l.file != "" && m.SourceFile != l.file || !ofKind(m, l.kind) {
 			continue
 		}
 		if q != "" && !strings.Contains(l.lowers[i], q) {
@@ -78,6 +101,9 @@ func (l *matchList) filter() {
 		l.shown = append(l.shown, m)
 	}
 	l.chosen = min(l.chosen, len(l.shown)-1)
+	if l.chosen < 0 && len(l.shown) > 0 {
+		l.chosen = 0 // the first of a list that was empty
+	}
 }
 
 func (l *matchList) selected() (model.Match, bool) {
@@ -116,6 +142,16 @@ func (l *matchList) newMatch(trigger string) {
 	l.a.editor.create(l.prefill(), trigger)
 }
 
+// add makes a match of the kind shown: a prompt while the list shows
+// prompts, in prompts.yml unless a file is shown.
+func (l *matchList) add() {
+	if l.kind != kindPrompts {
+		l.newMatch("")
+		return
+	}
+	l.a.editor.compose(model.Match{SourceFile: l.file})
+}
+
 func (l *matchList) duplicate(m model.Match) { l.a.editor.duplicate(m) }
 
 // remove deletes m at once, with Undo in a toast to put it back where it
@@ -146,7 +182,7 @@ func (l *matchList) toggle(m model.Match) {
 // the window, so that they work wherever the focus is, the sidebar too.
 func (l *matchList) shortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() { l.search.Focus() })
-	c.OnShortcut(ui.Cmd, ui.KeyN, func() { l.newMatch("") })
+	c.OnShortcut(ui.Cmd, ui.KeyN, l.add)
 	c.OnShortcut(ui.Cmd, ui.KeyD, func() {
 		if m, ok := l.selected(); ok {
 			l.duplicate(m)
@@ -190,26 +226,34 @@ func (l *matchList) view(c *ui.Context) {
 					}
 				}
 			}
-			ui.PrimaryButton(c, "").Label("Add match").Tooltip("New match (⌘N)").Children(func() {
+			what := "match"
+			if l.kind == kindPrompts {
+				what = "prompt"
+			}
+			ui.PrimaryButton(c, "").Label("New " + what).Tooltip("New " + what + " (⌘N)").Children(func() {
 				ui.Icon(c, iconPlus)
 				ui.Text(c, "New").SingleLine()
-			}).OnClick(func() { l.newMatch("") })
+			}).OnClick(l.add)
 		})
 		ui.Divider(c)
 		if !l.a.trusted {
 			accessBanner(c, l.a)
 		}
 
-		if len(l.shown) == 0 {
-			ui.Column(c).Grow(1).Children(func() {
-				title, detail := l.emptyText()
-				emptyState(c, iconMatches, title, detail, nil)
-			})
+		if l.listWidth == 0 {
+			l.listWidth = 280
+		}
+		if len(l.shown) == 0 && l.kind == kindAll {
+			l.empty(c)
 		} else {
-			if l.listWidth == 0 {
-				l.listWidth = 280
-			}
-			ui.Split(c, &l.listWidth, func() { l.list(c) }, func() { l.detail(c) }).Grow(1)
+			ui.Split(c, &l.listWidth, func() {
+				l.scopeBar(c)
+				if len(l.shown) == 0 {
+					l.empty(c)
+				} else {
+					l.list(c)
+				}
+			}, func() { l.detail(c) }).Grow(1)
 		}
 
 		if err := l.a.store.LastError; err != "" {
@@ -237,6 +281,46 @@ func accessBanner(c *ui.Context, a *app) {
 			caption(c, "Until you allow it in System Settings, Sokki can't see what you type, and no trigger expands.").Wrap()
 		})
 		ui.Button(c, "Open System Settings").OnClick(a.grantAccess)
+	})
+}
+
+// scopeBar chooses the kind of matches the list shows, over it.
+func (l *matchList) scopeBar(c *ui.Context) {
+	ui.Row(c).Padding(10, 12, 4, 10).Gap(8).AlignItems(ui.Center).Children(func() {
+		if ui.Segmented(c, &l.kind, kindLabels...).Label("Show").Changed() {
+			// Another list: the choice of the last, kept by its key, would
+			// be lost in it.
+			l.listState = ui.ListState{}
+			l.chosen = 0
+			l.filter()
+		}
+		ui.Spacer(c)
+		if l.kind != kindAll && strings.TrimSpace(l.query) == "" {
+			caption(c, fmt.Sprint(len(l.shown))).FontFeatures("tnum")
+		}
+	})
+}
+
+// empty is the list, or the page, with nothing to show: what to do
+// about it.
+func (l *matchList) empty(c *ui.Context) {
+	icon := iconMatches
+	if l.kind == kindPrompts {
+		icon = iconPrompt
+	}
+	title, detail := l.emptyText()
+	ui.Column(c).Grow(1).Children(func() {
+		var actions func()
+		if strings.TrimSpace(l.query) == "" {
+			actions = func() {
+				label := "New Match"
+				if l.kind == kindPrompts {
+					label = "New Prompt"
+				}
+				ui.Button(c, label).OnClick(l.add)
+			}
+		}
+		emptyState(c, icon, title, detail, actions)
 	})
 }
 
@@ -269,10 +353,14 @@ func (l *matchList) emptyText() (title, detail string) {
 	switch {
 	case strings.TrimSpace(l.query) != "":
 		return "No Results", fmt.Sprintf("No match has “%s”.", strings.TrimSpace(l.query))
+	case l.kind == kindPrompts:
+		return "No Prompts", "A prompt has no trigger: find it in the palette and insert it into any app."
+	case l.kind == kindTriggers:
+		return "No Triggers", "A match with a trigger types its replacement wherever you type the trigger."
 	case l.file != "":
-		return "No Matches Yet", "This file has no matches. Add one with New."
+		return "No Matches Yet", "This file has no matches."
 	}
-	return "No Matches Yet", "A match types its replacement when you type its trigger. Add one with New."
+	return "No Matches Yet", "A match types its replacement when you type its trigger."
 }
 
 func firstLine(s string) string {
@@ -286,17 +374,9 @@ func (l *matchList) row(c *ui.Context, i int) {
 	m := l.shown[i]
 	t := c.Theme()
 	chosen := i == l.chosen
-	text, mutedColor := t.Text, t.TextMuted
-	if chosen {
-		text, mutedColor = t.AccentText, t.AccentText.Alpha(0.78)
-	}
-	row := ui.Row(c).Padding(7, 10).Gap(10).AlignItems(ui.Center).Radius(7).MinHeight(46)
-	switch {
-	case chosen:
-		row.Background(t.Accent)
-	case row.Hovered():
-		row.Background(t.Text.Alpha(0.045))
-	}
+	text, mutedColor := rowColors(t, chosen)
+	row := ui.Row(c).Padding(7, 10).Gap(10).AlignItems(ui.Center).Radius(8).MinHeight(46)
+	rowFill(c, row, chosen)
 	row.Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Opacity(enabledOpacity(m)).Children(func() {
 			titleText(c, matchTitle(m), chosen).FontWeight(500).TextColor(text).SingleLine().Ellipsis("…")
@@ -382,7 +462,9 @@ func (l *matchList) detail(c *ui.Context) {
 	t := c.Theme()
 	m, ok := l.selected()
 	if !ok {
-		emptyState(c, iconMatches, "No Match Chosen", "Choose a match to see it whole.", nil)
+		if len(l.shown) > 0 {
+			emptyState(c, iconMatches, "No Match Chosen", "Choose a match to see it whole.", nil)
+		}
 		return
 	}
 	ui.Column(c).Fill().Children(func() {
@@ -390,7 +472,7 @@ func (l *matchList) detail(c *ui.Context) {
 			ui.Column(c).Padding(18, 22).Gap(18).Children(func() {
 				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
 					ui.Column(c).Grow(1).Shrink(1).Gap(8).Children(func() {
-						ui.Text(c, matchTitle(m)).FontSize(16).Bold().Wrap().MaxLines(2).Ellipsis("…")
+						heading(c, matchTitle(m)).Wrap().MaxLines(2).Ellipsis("…")
 						ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 							triggerCap(c, m, false, nil).Shrink(1).Ellipsis("…")
 							if m.SourceFile != "" {
@@ -447,7 +529,7 @@ func facts(c *ui.Context, rows [][2]string) {
 			}
 			row.Children(func() {
 				muted(c, r[0]).FontSize(12).Width(76).Shrink(0).SingleLine()
-				ui.Text(c, r[1]).FontSize(12).FontFeatures("tnum").SingleLine().Ellipsis("…").Grow(1).Shrink(1).Selectable()
+				ui.Text(c, r[1]).FontSize(12).FontFeatures("tnum").Wrap().MaxLines(2).Ellipsis("…").Grow(1).Shrink(1).Selectable()
 			})
 		}
 	})

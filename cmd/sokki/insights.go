@@ -16,19 +16,6 @@ import (
 // minute, of 5 characters.
 const charsPerMinute = 200
 
-// The Insights page's motion: bars and numbers grow in one after
-// another as the page comes in, each in growAnim, and hover fades.
-var (
-	hoverAnim = ui.Animation{Duration: 120 * time.Millisecond}
-	growAnim  = ui.Animation{Duration: 240 * time.Millisecond}
-	stagger   = 25 * time.Millisecond
-	// unfoldTransition is how the list of unused matches opens.
-	unfoldTransition = ui.ElementTransition{
-		Duration: 180 * time.Millisecond, Colors: true,
-		Enter: &ui.Motion{Y: -4},
-	}
-)
-
 // maxUnused is how many unused matches show at most, which keeps the
 // frame short with thousands of them.
 const maxUnused = 48
@@ -149,16 +136,27 @@ func (s *settingsWindow) insightCards(c *ui.Context, m usage.Summary, ic *insigh
 // insightsEmpty is the Insights page before the first expansion: how to
 // make one, with a trigger of the user's to try.
 func (s *settingsWindow) insightsEmpty(c *ui.Context) {
-	detail := "Type your triggers for a while: how often you use each, and where, shows up here."
+	trigger := ""
 	for _, m := range s.a.store.Matches {
 		if m.Enabled && m.Trigger != "" {
-			detail = "Type " + m.Trigger + " in any app to try it: how often you use each match, and where, shows up here."
+			trigger = m.Trigger
 			break
 		}
 	}
 	ui.Column(c).Fill().Children(func() {
 		ui.Box(c).Height(max(c.TitleBar().Height, 12)).DragWindow()
-		emptyState(c, iconInsights, "No expansions yet", detail, func() {
+		emptyStateOf(c, iconInsights, "No expansions yet", func() {
+			if trigger == "" {
+				emptyDetail(c, "Type your triggers for a while: how often you use each, and where, shows up here.")
+				return
+			}
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				muted(c, "Type")
+				keycap(c, trigger, false).MaxWidth(160).Ellipsis("…")
+				muted(c, "in any app to try it.")
+			})
+			emptyDetail(c, "How often you use each match, and where, shows up here.")
+		}, func() {
 			if ui.Button(c, "Show Matches").Clicked() {
 				s.setPage(matchesPage)
 			}
@@ -214,8 +212,9 @@ func usageCap(c *ui.Context, key string, trigger bool) ui.Element {
 // bars start at one line.
 const labelWidth = 140
 
-// hoverRow is a row of a list of the Insights page, which tints as the
-// pointer is over it; a row with onClick set is a button.
+// hoverRow is a row of a list of the Insights page; a row with onClick
+// set is a button, which tints as the pointer is over it. One without
+// stays still: it leads nowhere.
 func hoverRow(c *ui.Context, label string, onClick func(), fn func()) {
 	t := c.Theme()
 	row := ui.ButtonBase(c).Padding(4, 8).Margin(-4, -8).Radius(6)
@@ -223,7 +222,7 @@ func hoverRow(c *ui.Context, label string, onClick func(), fn func()) {
 		row.Label(label).OnClick(onClick)
 	}
 	hover := ui.Transparent
-	if row.Hovered() {
+	if onClick != nil && row.Hovered() {
 		hover = t.Text.Alpha(0.045)
 	}
 	row.Background(row.AnimateColor("hover", hover, hoverAnim)).Children(func() {
@@ -457,9 +456,7 @@ func statTile(c *ui.Context, icon *ui.SVG, tint ui.Color, label string, n int, n
 	v := grow(tile, "n", float32(n), delay)
 	tile.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(20, 20).Radius(5).Background(tint.Alpha(0.14)).Center().Shrink(0).Children(func() {
-				ui.Icon(c, icon).FontSize(12).TextColor(tint)
-			})
+			iconPlate(c, icon, tint, 20)
 			ui.Text(c, label).FontSize(11).FontWeight(600).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		})
 		ui.Text(c, thousands(int(v+0.5))).FontSize(26).FontWeight(700).FontFeatures("tnum").SingleLine()

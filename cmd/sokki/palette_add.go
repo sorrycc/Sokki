@@ -133,11 +133,9 @@ func (p *palette) addView(c *ui.Context) {
 	problem := p.addProblem()
 
 	ui.Row(c).Padding(14, 18).Gap(10).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(28, 28).Radius(7).Background(t.Accent.Alpha(0.12)).Center().Shrink(0).Children(func() {
-			ui.Icon(c, iconPrompt).FontSize(14).TextColor(t.Accent)
-		})
+		iconPlate(c, iconPrompt, t.Accent, 28)
 		ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
-			ui.Text(c, "New Prompt").FontSize(15).Bold().SingleLine()
+			heading(c, "New Prompt").SingleLine()
 			caption(c, "Saved to "+f.file+" · found in the palette").SingleLine().Ellipsis("…")
 		})
 		ui.Button(c, "Open in Editor").OnClick(p.openAddInEditor)

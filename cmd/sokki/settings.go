@@ -394,11 +394,11 @@ func (s *settingsWindow) shortcuts(c *ui.Context) {
 	cfg := &s.a.store.Config
 	changed := false
 	scrollPage(c, "Shortcuts", "Reach Sokki from any app.", func() {
-		group(c, "", func() {
+		group(c, "Anywhere", func() {
 			setting(c, "Search matches", "Opens the palette to find a match or prompt and type it.", true, func() {
 				changed = choose(c, &cfg.PaletteShortcut, paletteOptions) || changed
 			})
-			setting(c, "Save selection as prompt", "Saves the text selected in any app to prompts.yml at once.", false, func() {
+			setting(c, "Save selection as prompt", "Saves the text selected in any app as a prompt, in prompts.yml. Also in the menu bar.", false, func() {
 				changed = choose(c, &cfg.CaptureShortcut, captureOptions) || changed
 			})
 			setting(c, "Pause or resume", "Turns expansion off and on again.", false, func() {

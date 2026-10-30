@@ -141,7 +141,7 @@ func TestDuplicateOpensEditor(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyD)
 	tt.Frame()
 	e := a.editor
-	if e.existing != 0 || e.trigger != ":hello" || e.replace != "Hi there!" || e.title != "Duplicate Match" {
+	if e.existing != 0 || e.trigger != ":hello" || e.replace != "Hi there!" || e.title() != "Duplicate Match" {
 		t.Fatalf("not a duplicate: %+v", e)
 	}
 	et := ui.NewTester(e.view, 560, 540)
@@ -353,7 +353,7 @@ func TestGeneralSavesConfig(t *testing.T) {
 func TestEditorSavesNewMatch(t *testing.T) {
 	a := testApp(t)
 	e := a.editor
-	e.existing, e.trigger, e.file, e.enabled, e.title = 0, ":", config.DefaultMatchFile, true, "New Match"
+	e.existing, e.trigger, e.file, e.enabled, e.verb = 0, ":", config.DefaultMatchFile, true, "New"
 	tt := ui.NewTester(e.view, 560, 540)
 	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 78})
 	if !tt.HasText("Trigger") || !tt.HasText("Replacement") {
@@ -433,6 +433,10 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 		t.Fatalf("chosen %d", p.chosen)
 	}
 	shot(t, tt, "palette")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "palette-dark")
+	tt.SetDark(false)
 	p.query = "hi"
 	p.filter()
 	tt.Frame()
@@ -594,8 +598,8 @@ func TestMatchesShortcutsFromAnywhere(t *testing.T) {
 	tt := ui.NewTester(a.settings.view, 780, 560)
 	tt.Key(ui.Cmd, ui.KeyN)
 	tt.Frame()
-	if a.editor.title != "New Match" {
-		t.Fatalf("⌘N: %q", a.editor.title)
+	if a.editor.title() != "New Match" {
+		t.Fatalf("⌘N: %q", a.editor.title())
 	}
 }
 
@@ -710,6 +714,10 @@ func TestPaletteQuickAddsAPrompt(t *testing.T) {
 	}
 	tt.Advance(settle)
 	shot(t, tt, "palette-new-prompt")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "palette-new-prompt-dark")
+	tt.SetDark(false)
 	tt.Key(ui.Cmd, ui.KeyEnter)
 	tt.Frame()
 	if p.mode != modeSearch {
@@ -797,6 +805,10 @@ func TestCaptureSavesTheSelection(t *testing.T) {
 	}
 	tt.Advance(settle)
 	shot(t, tt, "palette-captured")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "palette-captured-dark")
+	tt.SetDark(false)
 	if err := tt.Click("Undo"); err != nil {
 		t.Fatal(err)
 	}
@@ -839,7 +851,7 @@ func TestEditorSavesAPromptWithoutTrigger(t *testing.T) {
 	a := testApp(t)
 	e := a.editor
 	e.compose(model.Match{Label: "Plan", Replace: "Plan it first."})
-	if e.title != "New Prompt" || e.file != config.PromptFile || !e.canSave() {
+	if e.title() != "New Prompt" || e.file != config.PromptFile || !e.canSave() {
 		t.Fatalf("editor %+v", e)
 	}
 	tt := ui.NewTester(e.view, 560, 540)
@@ -885,5 +897,82 @@ func TestBannerKeep(t *testing.T) {
 	p.keep(false)
 	if p.captured.kept || p.captured.timers != 1 || p.captured.shown != leftFor {
 		t.Fatalf("left: %+v", p.captured)
+	}
+}
+
+// TestMatchesShowsPrompts is the scope bar of Matches: prompts alone,
+// none yet with a button making one, and New making a prompt there.
+func TestMatchesShowsPrompts(t *testing.T) {
+	a := testApp(t)
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	if err := tt.Click("Prompts"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("No Prompts") || tt.HasText(":hello") {
+		t.Fatalf("prompts: %q", tt.Texts())
+	}
+	shot(t, tt, "matches-no-prompts")
+	if err := tt.Click("New Prompt"); err != nil {
+		t.Fatal(err)
+	}
+	e := a.editor
+	if e.title() != "New Prompt" || e.file != config.PromptFile || e.trigger != "" {
+		t.Fatalf("editor %q %q %q", e.title(), e.file, e.trigger)
+	}
+	a.store.Add(model.Match{ID: model.NewID(), Label: "Review a diff", Replace: "Review this diff.\nBe brief.", Enabled: true, SourceFile: config.PromptFile})
+	tt.Frame()
+	if !tt.HasText("Review a diff") || tt.HasText(":hello") {
+		t.Fatalf("prompts: %q", tt.Texts())
+	}
+	if m, ok := a.settings.matches.selected(); !ok || m.Label != "Review a diff" {
+		t.Fatalf("chosen %+v %v", m, ok)
+	}
+	shot(t, tt, "matches-prompts")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "matches-prompts-dark")
+	tt.SetDark(false)
+	if err := tt.Click("Triggers"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("Review a diff") || !tt.HasText(":hello") {
+		t.Fatalf("triggers: %q", tt.Texts())
+	}
+}
+
+// TestEditorFollowsTheTrigger is the editor calling what it edits a
+// prompt while the trigger is empty, and a match once one is typed.
+func TestEditorFollowsTheTrigger(t *testing.T) {
+	a := testApp(t)
+	a.store.Config.PaletteShortcut = "opt+space"
+	e := a.editor
+	e.compose(model.Match{Replace: "Summarize this thread.\nKeep it short."})
+	tt := ui.NewTester(e.view, 560, 540)
+	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 78})
+	if !tt.HasText("New Prompt") || !tt.HasText("No trigger: a prompt, in the palette as “Summarize this thread.”") || !tt.HasText("⌥ Space") {
+		t.Fatalf("prompt: %q", tt.Texts())
+	}
+	tt.Advance(settle)
+	shot(t, tt, "editor-prompt")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "editor-prompt-dark")
+	tt.SetDark(false)
+	e.trigger = ":sum"
+	tt.Frame()
+	if !tt.HasText("New Match") || tt.HasText("⌥ Space") {
+		t.Fatalf("match: %q", tt.Texts())
+	}
+}
+
+func TestAccelerator(t *testing.T) {
+	for value, want := range map[string]string{
+		"ctrl+opt+p": "Ctrl+Alt+P", "opt+space": "Alt+Space", "ctrl+shift+space": "Ctrl+Shift+Space", "none": "", "": "",
+	} {
+		if got := accelerator(value); got != want {
+			t.Errorf("accelerator(%q) = %q, want %q", value, got, want)
+		}
 	}
 }
