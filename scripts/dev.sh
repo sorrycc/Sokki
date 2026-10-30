@@ -2,7 +2,10 @@
 # Runs Sokki for development beside the installed Sokki: builds a bare
 # binary, .mygo/dev/sokki, runs it, and rebuilds and restarts it when a Go
 # file, a resource, go.mod or mygo.json changes. SOKKI_CONFIG_DIR gives it
-# its own matches, so that the two never expand the same trigger.
+# its own profile, so that the two never expand the same trigger: its
+# matches and settings, and in data/ its prefs, crashes and window state.
+# Signed in, it syncs with the account's "sokki-dev" settings, not those of
+# the installed Sokki.
 #
 # Not `go tool mygo dev`: macOS 26 keeps the menu bar icon of the dev bundle
 # it makes hidden (Control Center keeps its window off screen, for reasons

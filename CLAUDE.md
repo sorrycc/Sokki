@@ -27,7 +27,7 @@ no cgo: macOS APIs MyGo lacks are called through purego. arm64 only.
 go build ./...
 go test ./...            # -short skips pasteboard tests
 go vet ./... && go tool mygo vet
-scripts/dev.sh           # bare binary rebuilt on change (not mygo dev: macOS 26 hides its menu bar icon), config in ~/.config/sokki-dev
+scripts/dev.sh           # bare binary rebuilt on change (not mygo dev: macOS 26 hides its menu bar icon), its own profile in ~/.config/sokki-dev
 go tool mygo build       # build/darwin-arm64/Sokki.app + .dmg, ad hoc signed
 ```
 

@@ -116,6 +116,10 @@ func newCloud(a *app) *cloud {
 		c.tokenFile = filepath.Join(string(a.dir), tokenKey)
 	}
 	c.engine = cloudsync.New(c.client, cloudLocal{c}, filepath.Join(string(a.dir), syncFile))
+	if mygo.IsDev() {
+		// Development keeps its matches out of those of the person's Macs.
+		c.engine.Doc = cloudsync.App + "-dev"
+	}
 	return c
 }
 

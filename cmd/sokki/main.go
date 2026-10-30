@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,13 @@ func main() {
 	}
 	a := &app{dir: config.UserDir(), mainQueue: make(chan func(), 256)}
 	mygo.App.SetName("Sokki")
+	if mygo.IsDev() {
+		// Development keeps its prefs, crashes and window state in its
+		// configuration directory, apart from the installed Sokki's.
+		data := filepath.Join(string(a.dir), "data")
+		os.MkdirAll(data, 0o755)
+		mygo.App.SetPath(mygo.PathUserData, data)
+	}
 	mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory)
 	mygo.App.OnWindowAllClosed(func() {}) // a menu bar app runs without windows
 	mygo.App.OnSecondInstance(func([]string, string) { a.openSettings() })
@@ -185,10 +193,12 @@ func (a *app) ready() {
 		a.telemetry.OSVersion = macOSVersion()
 		a.telemetry.Locale = strings.ReplaceAll(mygo.App.Locale(), "-", "_")
 	}
-	// The install ID and switches come over from the Swift app's
-	// UserDefaults before telemetry reads them.
+	// The installed Sokki's install ID and switches come over from the
+	// Swift app's UserDefaults before telemetry reads them.
 	go func() {
-		a.prefs.MigrateUserDefaults(bundleID)
+		if !mygo.IsDev() {
+			a.prefs.MigrateUserDefaults(bundleID)
+		}
 		if a.telemetry != nil {
 			a.telemetry.UploadCrashes(a.prefs, crashes)
 			a.telemetry.Ping(a.prefs)

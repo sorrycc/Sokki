@@ -11,6 +11,7 @@
 package cloudsync
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,7 +29,8 @@ import (
 	"sokki/internal/mon"
 )
 
-// App is Sokki's client id with Mon, and its settings document's name.
+// App is Sokki's client id with Mon, and the name of its settings
+// document unless Engine.Doc names another.
 const App = "sokki"
 
 // Match is a match as it syncs. A prompt's trigger is "".
@@ -289,7 +291,9 @@ type Result struct {
 type Engine struct {
 	Client *mon.Client
 	Local  Local
-	path   string
+	// Doc is the name of the settings document, App when "".
+	Doc  string
+	path string
 
 	mu    sync.Mutex // held through a sync
 	smu   sync.Mutex // guards state
@@ -451,7 +455,7 @@ func (e *Engine) sync(ctx context.Context, choice Choice) (Result, error) {
 			st.Version, st.Base, st.SyncedAt = version, &merged, time.Now()
 			return res, e.setState(st)
 		}
-		saved, err := e.Client.PutSettings(ctx, App, version, merged)
+		saved, err := e.Client.PutSettings(ctx, cmp.Or(e.Doc, App), version, merged)
 		var conflictErr *mon.ConflictError
 		if errors.As(err, &conflictErr) {
 			// Another machine saved since: merge this machine's changes
@@ -489,7 +493,7 @@ func withUnknown(base, local Snapshot) Snapshot {
 
 // fetch returns the account's settings and their version, 0 for none.
 func (e *Engine) fetch(ctx context.Context) (Snapshot, int64, error) {
-	st, err := e.Client.GetSettings(ctx, App)
+	st, err := e.Client.GetSettings(ctx, cmp.Or(e.Doc, App))
 	if err != nil {
 		return Snapshot{}, 0, e.signedOut(err)
 	}
