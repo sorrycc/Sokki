@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -232,7 +233,7 @@ func TestInsights(t *testing.T) {
 	a.usage.Log(usage.Event{Trigger: ":hello", App: "com.apple.mail", AppName: "Mail", Saved: 8})
 	a.usage.Log(usage.Event{Trigger: ":sig", App: "com.apple.mail", AppName: "Mail", Palette: true, Saved: 300})
 	a.settings.setPage(insightsPage)
-	tt := ui.NewTester(a.settings.view, 780, 900)
+	tt := ui.NewTester(a.settings.view, 780, 1200)
 	tt.Advance(time.Second)
 	for _, want := range []string{"Expansions", "Characters saved", "316", "about 2 min of typing",
 		"Most Used", ":hello", "Typed vs Palette", "Mail", "Notes", "2 matches not used in 7 days"} {
@@ -246,7 +247,15 @@ func TestInsights(t *testing.T) {
 	if !tt.HasText(":today") {
 		t.Fatalf("unused not listed: %q", tt.Texts())
 	}
+	if !tt.HasText("your first day") || !tt.HasText("Early days") {
+		t.Fatalf("Insights lacks the first-day notes: %q", tt.Texts())
+	}
+	tt.Advance(settle)
 	shot(t, tt, "insights")
+	tt.SetDark(true)
+	tt.Advance(time.Second)
+	shot(t, tt, "insights-dark")
+	tt.SetDark(false)
 	if err := tt.Click("Edit :today"); err != nil {
 		t.Fatal(err)
 	}
@@ -261,9 +270,40 @@ func TestInsights(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.usage.Total() != 0 || !tt.HasText("No expansions yet") {
+	if a.usage.Total() != 0 || !tt.HasText("No expansions yet") || !tt.HasText("Show Matches") {
 		t.Fatalf("not cleared: %q", tt.Texts())
 	}
+	shot(t, tt, "insights-empty")
+}
+
+// TestInsightsWeek is the Insights page over a busy week: the average,
+// the top 10 of many, and only some of thousands of unused matches.
+func TestInsightsWeek(t *testing.T) {
+	a := testApp(t)
+	manyMatches(a, 600)
+	logWeek(a, 900)
+	a.settings.setPage(insightsPage)
+	tt := ui.NewTester(a.settings.view, 780, 1400)
+	tt.Advance(time.Second)
+	for _, want := range []string{"Daily average", "Top 10 of", "above average"} {
+		if !tt.HasText(want) {
+			t.Fatalf("Insights lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if tt.HasText("Early days") {
+		t.Fatal("early note over a full week")
+	}
+	if err := tt.Click("Unused matches"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if !tt.HasText(fmt.Sprintf("and %d more", len(a.settings.insightsCache.idle)-maxUnused)) {
+		t.Fatalf("unused not capped: %q", tt.Texts())
+	}
+	shot(t, tt, "insights-week")
+	tt.SetDark(true)
+	tt.Advance(time.Second)
+	shot(t, tt, "insights-week-dark")
 }
 
 func TestTypingTime(t *testing.T) {
@@ -829,4 +869,21 @@ func TestEditorSavesAPromptWithoutTrigger(t *testing.T) {
 		t.Fatalf("detail: %q", tt.Texts())
 	}
 	shot(t, tt, "matches-prompt")
+}
+
+// TestBannerKeep is the pointer over the capture banner keeping it, and
+// a countdown starting again once the pointer leaves.
+func TestBannerKeep(t *testing.T) {
+	p := testApp(t).palette
+	p.mode = modeSaved
+	p.keep(true)
+	p.keep(true)
+	if !p.captured.kept || p.captured.timers != 0 {
+		t.Fatalf("hovered: %+v", p.captured)
+	}
+	p.keep(false)
+	p.keep(false)
+	if p.captured.kept || p.captured.timers != 1 || p.captured.shown != leftFor {
+		t.Fatalf("left: %+v", p.captured)
+	}
 }

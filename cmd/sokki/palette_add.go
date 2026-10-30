@@ -213,6 +213,8 @@ const (
 	savedHeight = 64
 	savedFor    = 3 * time.Second
 	copiedFor   = 1500 * time.Millisecond
+	// leftFor is how long it stays once the pointer that kept it leaves.
+	leftFor = 1200 * time.Millisecond
 )
 
 // capture is what the capture shortcut did: the prompt it saved, or
@@ -224,9 +226,11 @@ type capture struct {
 	// shown is how long it says so.
 	shown time.Duration
 	// gen counts the captures, so that the hiding of one leaves the
-	// next alone; kept, the pointer over it, stops it hiding.
-	gen  int
-	kept bool
+	// next alone; kept, the pointer over it, stops it hiding; timers
+	// counts the countdowns started, each of which runs its line anew.
+	gen    int
+	kept   bool
+	timers int
 }
 
 // capture saves the selection in the app in front as a prompt at once,
@@ -240,20 +244,39 @@ func (p *palette) capture() {
 // notify shows what p.captured says for d, unless the pointer goes over
 // it, without taking the keyboard from the app.
 func (p *palette) notify(d time.Duration) {
-	p.captured.shown = d
 	p.place(savedHeight)
 	p.mode = modeSaved
 	p.opened++
 	p.win.ShowInactive()
 	p.win.Invalidate()
-	gen := p.captured.gen
+	p.hideAfter(d)
+}
+
+// hideAfter hides what p.captured says after d, unless the pointer is
+// over it then or another capture took its place.
+func (p *palette) hideAfter(d time.Duration) {
+	p.captured.shown = d
+	p.captured.timers++
+	gen, timer := p.captured.gen, p.captured.timers
 	time.AfterFunc(d, func() {
 		p.a.post(func() {
-			if p.mode == modeSaved && p.captured.gen == gen && !p.captured.kept {
+			if p.mode == modeSaved && p.captured.gen == gen && p.captured.timers == timer && !p.captured.kept {
 				p.hide()
 			}
 		})
 	})
+}
+
+// keep keeps what p.captured says while the pointer is over it, and
+// hides it a moment after the pointer leaves.
+func (p *palette) keep(hovered bool) {
+	switch {
+	case hovered:
+		p.captured.kept = true
+	case p.captured.kept:
+		p.captured.kept = false
+		p.hideAfter(leftFor)
+	}
 }
 
 // captureNow saves the selection as a prompt of PromptFile, its label its
@@ -335,6 +358,7 @@ func (p *palette) savedView(c *ui.Context) {
 	})
 	// How long it stays, unless the pointer keeps it.
 	if !cp.kept && cp.shown > 0 {
+		c.Key(cp.timers)
 		bar := ui.Box(c).Height(2).AlignSelf(ui.Start).Background(color.Alpha(0.45))
 		if seen := ui.Local(bar, "seen", func() bool { return false }); !*seen {
 			*seen = true

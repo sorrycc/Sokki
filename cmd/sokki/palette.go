@@ -241,9 +241,7 @@ func (p *palette) view(c *ui.Context) {
 		case modeAdd:
 			content.Children(func() { p.addView(c) })
 		case modeSaved:
-			if content.Hovered() {
-				p.captured.kept = true
-			}
+			p.keep(content.Hovered())
 			content.Children(func() { p.savedView(c) })
 		default:
 			content.Children(func() { p.searchView(c) })

@@ -8,9 +8,7 @@ import (
 
 func open(t *testing.T, now time.Time) *Store {
 	t.Helper()
-	s := Open(t.TempDir())
-	s.now = func() time.Time { return now }
-	return s
+	return openAt(t.TempDir(), func() time.Time { return now })
 }
 
 func TestSums(t *testing.T) {
@@ -21,44 +19,50 @@ func TestSums(t *testing.T) {
 	s.Log(Event{Trigger: ":sig", App: "com.apple.mail", AppName: "Mail", Palette: true, Saved: 30})
 	s.Log(Event{Trigger: ":x", Saved: -3})
 
-	if got := s.Total(); got != 4 {
-		t.Fatalf("Total = %d", got)
+	m := s.Summary()
+	if m.Total != 4 || s.Total() != 4 {
+		t.Fatalf("Total = %d", m.Total)
 	}
-	if got := s.Saved(); got != 44 {
-		t.Fatalf("Saved = %d", got)
+	if m.Saved != 44 {
+		t.Fatalf("Saved = %d", m.Saved)
 	}
-	if got := s.Palette(); got != 1 {
-		t.Fatalf("Palette = %d", got)
+	if m.Palette != 1 {
+		t.Fatalf("Palette = %d", m.Palette)
 	}
-	if tr := s.Triggers(); len(tr) != 3 || tr[0].Key != ":hi" || tr[0].Count != 2 {
+	if tr := m.Triggers; len(tr) != 3 || tr[0].Key != ":hi" || tr[0].Count != 2 {
 		t.Fatalf("Triggers = %+v", tr)
 	}
-	if apps := s.Apps(); len(apps) != 2 || apps[0].Name != "Mail" || apps[0].Count != 2 {
+	if apps := m.Apps; len(apps) != 2 || apps[0].Name != "Mail" || apps[0].Count != 2 {
 		t.Fatalf("Apps = %+v", apps)
 	}
-	if d := s.Daily(); d[6] != 4 || d[5] != 0 {
+	if d := m.Daily; d[6] != 4 || d[5] != 0 || m.ActiveDays() != 1 {
 		t.Fatalf("Daily = %v", d)
+	}
+	if again := s.Summary(); again.Rev != m.Rev {
+		t.Fatalf("counted again without a change: %d, %d", m.Rev, again.Rev)
+	}
+	s.Log(Event{Trigger: ":hi"})
+	if again := s.Summary(); again.Rev == m.Rev || again.Total != 5 || m.Total != 4 {
+		t.Fatalf("after a change: %+v, before %+v", again, m)
 	}
 }
 
 func TestDailyAndPrune(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 29, 9, 0, 0, 0, time.Local)
-	s := Open(dir)
+	s := openAt(dir, func() time.Time { return now })
 	for _, ago := range []int{0, 1, 1, 6, 8} {
 		s.now = func() time.Time { return now.AddDate(0, 0, -ago) }
 		s.Log(Event{Trigger: ":a"})
 	}
 	s.now = func() time.Time { return now }
-	if d := s.Daily(); d != [7]int{1, 0, 0, 0, 0, 2, 1} {
+	if d := s.Summary().Daily; d != [7]int{1, 0, 0, 0, 0, 2, 1} {
 		t.Fatalf("Daily = %v", d)
 	}
 	s.Flush()
 
 	// Reopened, the event of 8 days ago is gone.
-	r := Open(dir)
-	r.now = func() time.Time { return now }
-	r.prune()
+	r := openAt(dir, func() time.Time { return now })
 	if got := r.Total(); got != 4 {
 		t.Fatalf("Total after reopening = %d", got)
 	}
@@ -75,7 +79,7 @@ func TestDailyAcrossDaylightSaving(t *testing.T) {
 	s.now = func() time.Time { return time.Date(2026, 10, 25, 23, 30, 0, 0, loc) }
 	s.Log(Event{Trigger: ":a"})
 	s.now = func() time.Time { return now }
-	if d := s.Daily(); d[4] != 1 {
+	if d := s.Summary().Daily; d[4] != 1 {
 		t.Fatalf("Daily = %v", d)
 	}
 }
@@ -85,7 +89,7 @@ func TestClear(t *testing.T) {
 	s.Log(Event{Trigger: ":a"})
 	s.Flush()
 	s.Clear()
-	if s.Total() != 0 || len(s.Triggers()) != 0 {
+	if s.Total() != 0 || len(s.Summary().Triggers) != 0 {
 		t.Fatal("not cleared")
 	}
 	if got := Open(filepath.Dir(s.path)).Total(); got != 0 {

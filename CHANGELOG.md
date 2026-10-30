@@ -59,6 +59,13 @@ The update window shows the section of the version it offers: every release need
 - `⌘N`, `⌘F` and `⌘D` on the Matches page work wherever the focus is, the sidebar too.
 - A match file in the sidebar has a menu to add a match to it or show it in Finder.
 - A match file's error shows on the Matches page with a button to open the config folder.
+- **Settings → Insights** sets each chart on its own card, with the week's dates under the title.
+- The daily chart labels today, highlights the day under the pointer, and shows the average once two days have data.
+- The Today tile shows in green when today is above the daily average.
+- In the first days, Insights says the averages will fill in instead of comparing against one day.
+- Insights with nothing yet suggests one of your triggers to try, with a **Show Matches** button.
+- Insights opens and redraws faster with thousands of matches, listing up to 48 unused ones.
+- The capture and Copied banner now hides a moment after the pointer leaves it.
 
 ## 0.1.1
 

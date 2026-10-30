@@ -62,18 +62,17 @@ type Store struct {
 
 // sums are the counts of the events, as of a revision and a day.
 type sums struct {
-	rev      uint64
-	today    time.Time
-	daily    [7]int
-	saved    int
-	palette  int
-	triggers []Count
-	apps     []Count
+	Summary
+	rev   uint64
+	today time.Time
 }
 
 // Open loads the events of dir, without those older than 7 days.
-func Open(dir string) *Store {
-	s := &Store{path: filepath.Join(dir, File), now: time.Now}
+func Open(dir string) *Store { return openAt(dir, time.Now) }
+
+// openAt is Open on a clock of its own, which also prunes the events.
+func openAt(dir string, now func() time.Time) *Store {
+	s := &Store{path: filepath.Join(dir, File), now: now}
 	data, err := os.ReadFile(s.path)
 	if err == nil {
 		err = json.Unmarshal(data, &s.events)
@@ -111,42 +110,44 @@ func (s *Store) Total() int {
 	return len(s.events)
 }
 
-// Daily returns the expansions of each of the last 7 days, by the local
-// calendar, today last.
-func (s *Store) Daily() [7]int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.summed().daily
+// Summary is the counts of the events, for the Insights page. Its slices
+// are shared, never changed: read them only.
+type Summary struct {
+	// Rev changes as the counts are counted again: after a change of
+	// the events, or on a new day.
+	Rev   uint64
+	Total int
+	// Daily is the expansions of each of the last 7 days, by the local
+	// calendar, today last.
+	Daily [7]int
+	// Saved is the characters the expansions saved.
+	Saved int
+	// Palette is the expansions inserted from the palette; the others
+	// were typed.
+	Palette int
+	// Triggers is the keys expanded, most first; Apps the apps expanded
+	// in, most first, insertions from the palette counting for the app
+	// they went to.
+	Triggers, Apps []Count
 }
 
-// Saved returns the characters the expansions saved.
-func (s *Store) Saved() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.summed().saved
+// ActiveDays returns how many of the last 7 days had an expansion.
+func (m Summary) ActiveDays() int {
+	n := 0
+	for _, d := range m.Daily {
+		if d > 0 {
+			n++
+		}
+	}
+	return n
 }
 
-// Palette returns the expansions inserted from the palette; the others
-// were typed.
-func (s *Store) Palette() int {
+// Summary returns the counts of the events, counted again only after a
+// change or on a new day: the Insights page asks on every frame.
+func (s *Store) Summary() Summary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.summed().palette
-}
-
-// Triggers returns the triggers expanded, most first.
-func (s *Store) Triggers() []Count {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.summed().triggers)
-}
-
-// Apps returns the apps expanded in, most first. Insertions from the
-// palette count for the app they went to.
-func (s *Store) Apps() []Count {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.summed().apps)
+	return s.summed().Summary
 }
 
 // summed counts the events again after a change, or on a new day; s.mu
@@ -155,11 +156,11 @@ func (s *Store) summed() *sums {
 	now := s.now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	m := &s.sums
-	if m.triggers != nil && m.rev == s.rev && m.today.Equal(today) {
+	if m.Triggers != nil && m.rev == s.rev && m.today.Equal(today) {
 		return m
 	}
 	m.rev, m.today = s.rev, today
-	m.daily, m.saved, m.palette = [7]int{}, 0, 0
+	m.Summary = Summary{Rev: m.Summary.Rev + 1, Total: len(s.events)}
 	triggers := map[string]*Count{}
 	apps := map[string]*Count{}
 	for _, e := range s.events {
@@ -167,19 +168,19 @@ func (s *Store) summed() *sums {
 		day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
 		// Rounded, for the days that daylight saving time makes 23 or 25 hours.
 		ago := int((today.Sub(day) + 12*time.Hour) / (24 * time.Hour))
-		if ago >= 0 && ago < len(m.daily) {
-			m.daily[len(m.daily)-1-ago]++
+		if ago >= 0 && ago < len(m.Daily) {
+			m.Daily[len(m.Daily)-1-ago]++
 		}
-		m.saved += e.Saved
+		m.Saved += e.Saved
 		if e.Palette {
-			m.palette++
+			m.Palette++
 		}
 		add(triggers, e.Trigger, e.Trigger)
 		if e.App != "" {
 			add(apps, e.App, cmp.Or(e.AppName, e.App))
 		}
 	}
-	m.triggers, m.apps = sorted(triggers), sorted(apps)
+	m.Triggers, m.Apps = sorted(triggers), sorted(apps)
 	return m
 }
 

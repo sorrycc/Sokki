@@ -46,7 +46,9 @@ type settingsWindow struct {
 	confirmReset bool
 	confirmClear bool
 	unusedShown  bool
-	confirmOut   bool
+	// insightsCache is what the Insights page counted last.
+	insightsCache insightsCache
+	confirmOut    bool
 	// atLogin is whether Sokki opens at login, read as Settings shows.
 	atLogin bool
 }
