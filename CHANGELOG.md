@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
-## Unreleased
+## 0.2.0
 
 - A match's trigger is now optional: a match without one is a prompt, inserted from the palette.
 - `⌘N` in the palette opens a **New Prompt** form filled with the selected text, or else the clipboard.
