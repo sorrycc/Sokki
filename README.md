@@ -19,6 +19,7 @@ drawn by <a href="https://github.com/egoist/mygo">MyGo</a>'s native UI.</p>
 - **Recent Activity:** a HUD showing what was matched or blocked, to find out why a trigger didn't fire
 - **Settings:** matches by file, with search, the editor, and the general and privacy settings
 - **Safe by default:** nothing is read in password fields (secure input), nothing typed is logged there
+- **Command line:** `sokki` does from a terminal what the windows and menu do
 - **Auto-updates** with signed delta updates
 
 ## Configuration
@@ -44,6 +45,33 @@ matches:
 ```
 
 Files are reloaded as they change.
+
+## Command line
+
+`sokki` does from the terminal what Sokki's windows and menu do, so a script or an agent
+can too: list, add, edit and remove matches and prompts, search and render them, change
+settings, pause, read Insights and Recent Activity, and sign in and sync. **Install…** under
+**Settings → General → Command Line** puts it on the shell's path, in `~/.local/bin` when the
+shell looks there, else `/usr/local/bin`. It runs the app's binary as `Sokki cli`, and follows
+the app when it moves. `go install ./cmd/sokki-cli` builds it on its own, as `sokki-cli`.
+
+```sh
+sokki status
+sokki matches --prompts                      # or --triggers, --disabled, --file F, --query Q
+sokki match add --trigger :addr "1 Main St"
+pbpaste | sokki prompt add --label "Review a diff"
+sokki match edit :addr --trigger :home       # --trigger "" makes it a prompt
+sokki render :today                          # its text, variables filled in
+sokki config set inject_delay 5
+sokki activity                               # what was typed is masked unless --reveal
+sokki help                                   # every command
+```
+
+It asks the app running on this Mac, over a socket only you can reach
+(`~/Library/Caches/Sokki/sokki.sock`, `sokki-dev.sock` for a development build, which
+`--dev` talks to), so changes go through the app and sync as edits in Settings do. It prints
+JSON, or `--text`; it exits 3 when Sokki isn't running and 2 on a wrong command. A match is
+named by its trigger, a prompt by its title.
 
 ## Requirements
 

@@ -8,7 +8,10 @@ no cgo: macOS APIs MyGo lacks are called through purego. arm64 only.
 - `cmd/sokki/` — the app (package main): `main.go` startup + wiring, `tray.go` menu bar item, `settings.go` +
   `matches.go` Settings, `account.go` sign-in and settings sync, `editor.go` match editor, `palette.go` palette
   panel (`palette_search.go` its ranking, `palette_add.go` its New Prompt form and capture), `hud.go` Recent Activity panel, `insights.go` Insights page, `style.go` shared look (icons from `icons/`, keycaps, setting cards), `app_test.go` headless UI tests
-  (`SOKKI_SHOTS=dir go test ./cmd/sokki` saves screenshots)
+  (`SOKKI_SHOTS=dir go test ./cmd/sokki` saves screenshots), `control.go` the sokki command's side in the app,
+  `command.go` installing it
+- `cmd/sokki-cli/` — the sokki command on its own; the app's binary runs it as `Sokki cli`
+- `internal/cli/` — the sokki command: its commands, the socket it asks the running app over, the install on PATH
 - `internal/macos/` — purego bindings: event tap, synthesized keys, Accessibility (and the selected text), secure
   input, workspace, pasteboard
 - `internal/engine/` — trigger trie, buffer, undo, the tap's state machine (`Context`), variables/dates, fuzzy score

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
+## Unreleased
+
+- A new `sokki` command does from the terminal what Sokki's windows and menu do, while Sokki runs.
+- **Settings → General → Command Line** installs the `sokki` command on the shell's path.
+- `sokki matches`, `sokki match add|edit|duplicate|remove` and `sokki prompt add` manage matches and prompts.
+- `sokki search`, `sokki render` and `sokki copy` find a match and fill in its variables, as the palette does.
+- `sokki config`, `sokki pause` and `sokki privacy` read and change the settings.
+- `sokki insights` and `sokki activity` show Insights and Recent Activity, typed text masked unless `--reveal`.
+- `sokki signin`, `sokki sync` and `sokki signout` handle settings sync from the terminal.
+
 ## 0.2.0
 
 - A match's trigger is now optional: a match without one is a prompt, inserted from the palette.

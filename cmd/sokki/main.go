@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater/native"
 
+	"sokki/internal/cli"
 	"sokki/internal/config"
 	"sokki/internal/expander"
 	"sokki/internal/logx"
@@ -59,6 +60,10 @@ type app struct {
 	leases int
 
 	mainQueue chan func()
+	// commandPath is where the sokki command is installed, "" for
+	// nowhere.
+	commandPath string
+
 	// quitting is set once the app quits, which closes the windows that
 	// otherwise hide when closed.
 	quitting bool
@@ -110,6 +115,10 @@ func (a *app) release() {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "cli" {
+		// The sokki command, which asks the running app: see control.go.
+		os.Exit(cli.Main(os.Args[2:], cli.Env{Dev: mygo.IsDev()}))
+	}
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
@@ -174,6 +183,8 @@ func (a *app) ready() {
 	a.applyConfig()
 	a.watchConfig()
 	a.cloud.start()
+	a.startControl()
+	a.loadCommand()
 
 	// Typing in another app starts afresh; leaving one drops a match held
 	// for a longer trigger.

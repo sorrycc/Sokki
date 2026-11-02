@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -381,6 +382,22 @@ func (s *settingsWindow) general(c *ui.Context) {
 				}
 				if ui.Button(c, "Open Folder").Clicked() {
 					mygo.Shell.OpenPath(string(s.a.dir))
+				}
+			})
+		})
+		group(c, "Command Line", func() {
+			detail := "Manage matches, settings and sync from a terminal while Sokki runs: `sokki help`."
+			if s.a.commandPath != "" {
+				home, _ := os.UserHomeDir()
+				detail = "Installed in " + shortHome(home, filepath.Dir(s.a.commandPath)) + ". Run `sokki help` for its commands."
+			}
+			setting(c, "‘sokki’ command", detail, true, func() {
+				if s.a.commandPath == "" {
+					if ui.Button(c, "Install…").Clicked() {
+						s.a.installCommand()
+					}
+				} else if ui.Button(c, "Uninstall").Clicked() {
+					s.a.uninstallCommand()
 				}
 			})
 		})
