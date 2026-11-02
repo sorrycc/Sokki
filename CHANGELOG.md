@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
-## Unreleased
+## 0.3.0
 
 - A new `sokki` command does from the terminal what Sokki's windows and menu do, while Sokki runs.
 - **Settings → General → Command Line** installs the `sokki` command on the shell's path.
