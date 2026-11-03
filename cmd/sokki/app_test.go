@@ -464,6 +464,38 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	}
 }
 
+// Enter in the palette's focused search commits the chosen match: the
+// single-line input takes a plain Enter (and Shift+Enter) as its submit
+// before the window's shortcut in searchKeys sees it, so the submit must
+// commit. The match replaces with nothing, so the commit's delayed
+// injection posts no keys.
+func TestPaletteEnterCommitsFocusedSearch(t *testing.T) {
+	for _, mods := range []ui.Modifiers{0, ui.Shift} {
+		name := "Enter"
+		if mods != 0 {
+			name = "Shift+Enter"
+		}
+		t.Run(name, func(t *testing.T) {
+			a := testApp(t)
+			a.store.Add(model.Match{Trigger: ":empty", Replace: "", Enabled: true})
+			p := a.palette
+			p.query = ":empty"
+			p.filter()
+			if len(p.results) != 1 || p.results[0].Trigger != ":empty" {
+				t.Fatalf("results %+v", p.results)
+			}
+			tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+			p.input.Focus()
+			tt.Frame()
+			tt.Key(mods, ui.KeyEnter)
+			tt.Frame()
+			if _, ok := a.recency.Snapshot()[":empty"]; !ok {
+				t.Fatalf("%s in the focused search did not commit", name)
+			}
+		})
+	}
+}
+
 func TestMatchesDetail(t *testing.T) {
 	a := testApp(t)
 	tt := ui.NewTester(a.settings.view, 780, 560)

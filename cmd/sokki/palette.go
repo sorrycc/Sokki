@@ -264,9 +264,20 @@ func (p *palette) searchView(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Padding(14, 18).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Icon(c, iconSearch).FontSize(19).TextColor(t.TextMuted)
-		if ui.TextInputBase(c, &p.query).Bind(&p.input).Grow(1).FontSize(19).
-			Placeholder("Search matches and prompts").Label("Search matches and prompts").Changed() {
+		// A focused single-line input takes a plain Enter (and
+		// Shift+Enter) as its submit before the window's shortcut in
+		// searchKeys sees it, so the submit is what commits the choice
+		// here; that shortcut stays as the fallback for when the focus
+		// is elsewhere, as on the list.
+		search := ui.TextInputBase(c, &p.query).Bind(&p.input).Grow(1).FontSize(19).
+			Placeholder("Search matches and prompts").Label("Search matches and prompts")
+		if search.Changed() {
 			p.filter()
+		}
+		if search.Submitted() {
+			if m, ok := p.selected(); ok {
+				p.commit(m)
+			}
 		}
 		if p.query != "" {
 			caption(c, plural(len(p.results), "result", "results")).FontFeatures("tnum").SingleLine()

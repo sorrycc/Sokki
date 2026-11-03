@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
+## Unreleased
+
+- In the **Palette**, `↵` again types the chosen match into the app you were in.
+
 ## 0.3.0
 
 - A new `sokki` command does from the terminal what Sokki's windows and menu do, while Sokki runs.
