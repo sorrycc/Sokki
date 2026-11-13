@@ -228,6 +228,10 @@ func (p *palette) filter() {
 	}
 	found := p.index.rank(q, p.scope, try, p.spare[:0])
 	p.found, p.spare = found, p.found
+	p.days = nil
+	if p.scope == scopeHistory && q.Empty() {
+		found = p.byDay(found, time.Now())
+	}
 	p.results = p.results[:0]
 	for _, f := range found {
 		p.results = append(p.results, p.index.result(f.i))
@@ -235,10 +239,72 @@ func (p *palette) filter() {
 	p.choose(0)
 }
 
+// The days the History scope lists its prompts under, by when they were
+// last sent.
+const (
+	dayToday = iota
+	dayYesterday
+	dayEarlier
+)
+
+var dayNames = []string{"Today", "Yesterday", "Earlier"}
+
+// dayKey is the List's key of the heading of a day, apart from the
+// results' IDs.
+type dayKey int
+
+// byDay sorts found, ranked, under the days they were last sent, as of
+// now, the order within a day kept, and makes p.days of them: the rows
+// of the list, a heading before each day's results.
+func (p *palette) byDay(found []scored, now time.Time) []scored {
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).Unix()
+	yesterday := time.Date(y, m, d-1, 0, 0, 0, 0, now.Location()).Unix()
+	day := func(f scored) int {
+		switch {
+		case f.last >= today:
+			return dayToday
+		case f.last >= yesterday:
+			return dayYesterday
+		}
+		return dayEarlier
+	}
+	slices.SortStableFunc(found, func(a, b scored) int { return day(a) - day(b) })
+	p.dayCounts = [3]int{}
+	for i, f := range found {
+		dd := day(f)
+		if i == 0 || day(found[i-1]) != dd {
+			p.days = append(p.days, -1-dd)
+		}
+		p.days = append(p.days, i)
+		p.dayCounts[dd]++
+	}
+	return found
+}
+
+// rowOf is the list's row of result i: past the headings above it.
+func (p *palette) rowOf(i int) int {
+	if p.days == nil {
+		return i
+	}
+	for row, r := range p.days {
+		if r == i {
+			return row
+		}
+	}
+	return i
+}
+
 func (p *palette) choose(i int) {
+	was := p.chosen
 	p.chosen = max(0, min(i, len(p.results)-1))
 	if len(p.results) > 0 {
-		p.list.ScrollIntoView(p.chosen)
+		// Up to the first of a day brings its heading into view too.
+		row := p.rowOf(p.chosen)
+		if row > 0 && p.days != nil && p.days[row-1] < 0 && p.chosen <= was {
+			row--
+		}
+		p.list.ScrollIntoView(row)
 	}
 }
 

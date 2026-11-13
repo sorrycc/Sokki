@@ -1,6 +1,7 @@
 package history
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -208,6 +209,20 @@ func TestSources(t *testing.T) {
 		}
 	}
 
+	for _, src := range Sources {
+		if !s.Found(src.ID) {
+			t.Errorf("%s not found", src.ID)
+		}
+	}
+	if s := Open(t.TempDir()); !s.Found("claude") {
+		t.Error("not found before a scan")
+	}
+	empty := Open(t.TempDir())
+	empty.Scan(Env{Home: t.TempDir()})
+	if empty.Found("claude") || empty.Found("aider") {
+		t.Error("found in an empty home")
+	}
+
 	// A second scan reads only what was added.
 	if n := s.Scan(Env{Home: home}); n != 0 {
 		t.Fatalf("scanned again: %d", n)
@@ -238,5 +253,51 @@ func TestSourceNames(t *testing.T) {
 		if SourceName(src.ID) != src.Name || strings.TrimSpace(src.Where) == "" {
 			t.Fatal(src.ID)
 		}
+	}
+}
+
+// TestSaveWhileChanging writes the file as entries keep changing, which
+// the race detector watches: a save encodes a snapshot without the lock.
+func TestSaveWhileChanging(t *testing.T) {
+	now := time.Now()
+	s := openAt(t.TempDir(), time.Now)
+	var items []Item
+	for i := range 200 {
+		items = append(items, Item{Source: "codex", Text: fmt.Sprintf("Prompt number %d of the run", i), Project: "/p/a", Time: now})
+	}
+	s.Import(items, nil)
+	ids := []int64{}
+	for _, e := range s.Entries() {
+		ids = append(ids, e.ID)
+	}
+	done := make(chan bool)
+	go func() {
+		for range 20 {
+			s.save()
+		}
+		done <- true
+	}()
+	for i := range 2000 {
+		s.Recall(ids[i%len(ids)], fmt.Sprintf("/p/%d", i%7))
+		s.BumpMatch(fmt.Sprintf("m%d", i%5))
+	}
+	<-done
+	s.Flush()
+	s2 := openAt(filepath.Dir(s.path), time.Now)
+	if len(s2.Entries()) != 200 {
+		t.Fatalf("reloaded %d", len(s2.Entries()))
+	}
+	total := 0
+	for _, e := range s2.Entries() {
+		total += e.Count
+		if len(e.Uses) > keepUses || len(e.Projects) > keepProjects {
+			t.Fatalf("kept too much: %+v", e)
+		}
+	}
+	if total != 2200 || s2.MatchUse("m0").Count != 400 || len(s2.MatchUse("m0").Times) != keepUses {
+		t.Fatalf("counts %d, %+v", total, s2.MatchUse("m0"))
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(s.path), "*.tmp")); len(left) > 0 {
+		t.Fatalf("left %v", left)
 	}
 }

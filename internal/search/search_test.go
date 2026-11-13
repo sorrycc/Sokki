@@ -78,3 +78,18 @@ func TestMarks(t *testing.T) {
 		t.Fatalf("fuzzy %v", m)
 	}
 }
+
+func TestRanges(t *testing.T) {
+	q := Parse("the test @codex")
+	got := q.Ranges("Fix the TEST, then the tests", 100)
+	want := [][2]int{{4, 7}, {8, 12}, {14, 17}, {19, 22}, {23, 27}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ranges %v", got)
+	}
+	if got := Parse("ab").Ranges("abab", 1); len(got) != 1 {
+		t.Fatalf("limit: %v", got)
+	}
+	if got := Parse("bc abc").Ranges("xabcx", 10); !slices.Equal(got, [][2]int{{1, 4}}) {
+		t.Fatalf("merged: %v", got)
+	}
+}

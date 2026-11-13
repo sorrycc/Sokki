@@ -1,8 +1,11 @@
 package main
 
 import (
+	"math"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -173,25 +176,30 @@ func scopeNote(scope int) string {
 }
 
 // agentTints tell the agents apart at a glance, in rows, the preview
-// and Settings: one hue each, read on light and dark alike.
-var agentTints = map[string]ui.Color{
-	"claude":      ui.Hex("#d97757"),
-	"codex":       ui.Hex("#7c8aa0"),
-	"gemini":      ui.Hex("#4285f4"),
-	"antigravity": ui.Hex("#8b5cf6"),
-	"qoder":       ui.Hex("#14b8a6"),
-	"grok":        ui.Hex("#ec4899"),
-	"opencode":    ui.Hex("#f59e0b"),
-	"aider":       ui.Hex("#22c55e"),
+// and Settings: one hue each, deeper on light, lighter on dark, where
+// either reads as well.
+var agentTints = map[string][2]ui.Color{
+	"claude":      {ui.Hex("#d2693f"), ui.Hex("#e8906f")},
+	"codex":       {ui.Hex("#6b7a90"), ui.Hex("#9aa7bb")},
+	"gemini":      {ui.Hex("#3b78e7"), ui.Hex("#6ea1ff")},
+	"antigravity": {ui.Hex("#7c4dea"), ui.Hex("#a78bfa")},
+	"qoder":       {ui.Hex("#0f9f8f"), ui.Hex("#2dd4bf")},
+	"grok":        {ui.Hex("#db2777"), ui.Hex("#f472b6")},
+	"opencode":    {ui.Hex("#d97706"), ui.Hex("#fbbf24")},
+	"aider":       {ui.Hex("#16a34a"), ui.Hex("#4ade80")},
 }
 
-// agentTint is the hue of the agent of id, the muted text's for one
-// unknown.
+// agentTint is the hue of the agent of id in the theme t, the muted
+// text's for one unknown.
 func agentTint(t *ui.Theme, id string) ui.Color {
-	if tint, ok := agentTints[id]; ok {
-		return tint
+	tints, ok := agentTints[id]
+	if !ok {
+		return t.TextMuted
 	}
-	return t.TextMuted
+	if t.Dark {
+		return tints[1]
+	}
+	return tints[0]
 }
 
 // agentDot is the small round mark of an agent: in the accent's text
@@ -284,9 +292,18 @@ func (p *palette) entryPreview(c *ui.Context, e history.Entry) {
 				}
 			})
 		})
-		ui.Scroll(c).Grow(1).Children(func() {
+		hits := p.entryHits(e)
+		ui.Scroll(c).TrackScroll(&p.previewScroll).Grow(1).Children(func() {
 			ui.Column(c).Padding(0, 18, 16, 18).Children(func() {
-				textPlate(c, e.Text)
+				if hits == nil {
+					textPlate(c, e.Text)
+					return
+				}
+				mark := ui.Span{Background: t.Accent.Alpha(0.22), Radius: 3}
+				if t.Dark {
+					mark.Background = t.Accent.Alpha(0.4)
+				}
+				plate(c, ui.RichText(c, hitSpans(e.Text, hits, mark)...))
 			})
 		})
 		ui.Divider(c).Background(t.Border.Alpha(0.6))
@@ -305,6 +322,89 @@ func (p *palette) entryPreview(c *ui.Context, e history.Entry) {
 			caption(c, last).SingleLine()
 		})
 	})
+}
+
+// previewHits are where the query is found in the text of the entry
+// previewed, worked out once for the entry and the query.
+type previewHits struct {
+	id     int64
+	query  string
+	ranges [][2]int
+}
+
+// maxHits bounds the places marked in a preview.
+const maxHits = 200
+
+// previewTextWidth is the width the preview's text wraps at: the
+// palette's, less the list's and the plate's margins.
+const previewTextWidth = paletteWidth - listWidth - 1 - 2*18 - 2*12 - 1
+
+// entryHits returns where the query is found in the text of e, and as
+// the entry or the query changes scrolls the preview to the first place,
+// a little above it: at once for another entry, as the choice changes,
+// gliding for a query typed on the same.
+func (p *palette) entryHits(e history.Entry) [][2]int {
+	h := &p.hits
+	if h.id == e.ID && h.query == p.query {
+		return h.ranges
+	}
+	same := h.id == e.ID
+	*h = previewHits{id: e.ID, query: p.query, ranges: p.q.Ranges(e.Text, maxHits)}
+	y := float32(0)
+	if len(h.ranges) > 0 {
+		y = textY(e.Text[:h.ranges[0][0]]) - 3*previewLine
+	}
+	if y < previewLine*4 {
+		y = 0
+	}
+	if same {
+		p.previewScroll.ScrollTo(0, y, ui.Animation{Duration: motionBase})
+	} else {
+		p.previewScroll.Y = y
+	}
+	return h.ranges
+}
+
+// previewLine is the height of a line of the preview's text.
+const previewLine = 12 * 1.45
+
+// textY is how far down the preview's text the end of prefix, its start,
+// shows: by the lines it wraps into, as shaped at the preview's width.
+func textY(prefix string) float32 {
+	if !strings.Contains(prefix, "\n") && utf8.RuneCountInString(prefix) < 40 {
+		return 0
+	}
+	l := ui.ShapeText(prefix, ui.Font{Family: "monospace", Size: 12}, previewTextWidth)
+	at := l.Caret(utf16Len(prefix))
+	if at.H <= 0 {
+		return 0
+	}
+	return float32(math.Round(float64(at.Y/at.H))) * previewLine
+}
+
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16.RuneLen(r)
+	}
+	return n
+}
+
+// hitSpans is text with the ranges marked.
+func hitSpans(text string, ranges [][2]int, mark ui.Span) []ui.Span {
+	spans := make([]ui.Span, 0, 2*len(ranges)+1)
+	at := 0
+	for _, r := range ranges {
+		if r[0] > at {
+			spans = append(spans, ui.Span{Text: text[at:r[0]]})
+		}
+		spans = append(spans, styled(text[r[0]:r[1]], true, mark))
+		at = r[1]
+	}
+	if at < len(text) {
+		spans = append(spans, ui.Span{Text: text[at:]})
+	}
+	return spans
 }
 
 // times says how many times: once, twice, 3 times.

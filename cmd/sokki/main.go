@@ -43,6 +43,8 @@ type app struct {
 	history *history.Store
 	// scanning is set while the history's sources are read.
 	scanning atomic.Bool
+	// lastRead is what the last reading the person asked for found.
+	lastRead historyRead
 	// historyHome is where the agents keep their history, "" for the
 	// home folder; tests have their own.
 	historyHome string
@@ -412,7 +414,22 @@ func (a *app) historyEnv() history.Env {
 
 // scanHistory reads what the agents added to their history since the
 // last reading, away from the main thread, unless a reading runs.
-func (a *app) scanHistory() {
+func (a *app) scanHistory() { a.readHistory(false) }
+
+// readHistoryNow reads the agents' history as the person asked, from
+// Read Now, which then says what it found.
+func (a *app) readHistoryNow() { a.readHistory(true) }
+
+// historyRead is what a reading the person asked for found: how many
+// prompts are new. Settings says so until until, which the first frame
+// after the reading sets, as the reading is fresh.
+type historyRead struct {
+	found int
+	fresh bool
+	until time.Time
+}
+
+func (a *app) readHistory(asked bool) {
 	if !a.scanning.CompareAndSwap(false, true) {
 		return
 	}
@@ -420,11 +437,17 @@ func (a *app) scanHistory() {
 	go func() {
 		defer a.scanning.Store(false)
 		gen := a.history.Gen()
-		a.history.Scan(a.historyEnv())
+		n := a.history.Scan(a.historyEnv())
 		changed := a.history.Gen() != gen
 		a.post(func() {
+			if asked {
+				a.lastRead = historyRead{found: n, fresh: true}
+			}
 			if changed {
 				a.palette.invalidate()
+			}
+			if n > 0 {
+				a.palette.arrivedNote(n)
 			}
 			a.settings.invalidate()
 		})

@@ -30,6 +30,13 @@ The update window shows the section of the version it offers: every release need
 - Text edited with `⇥` is marked **Edited**, with **Revert** to start over.
 - **Settings → Agent History** sums up the prompts by agent and shows when it is reading them.
 - The palette stays quick over a large history as new prompts come in or you insert one.
+- **Read Now** says for a moment how many new prompts it found, or that history is up to date.
+- The palette's footer says how many new prompts came in while it was open.
+- The **History** scope lists prompts under **Today**, **Yesterday** and **Earlier** before you search.
+- **Settings → Agent History** marks agents whose history isn't on this Mac as **Not found**.
+- The preview highlights every place your search matched and scrolls to the first one.
+- Agent colors are tuned for light and dark mode.
+- Saving a large history no longer pauses the app.
 
 ## 0.3.0
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,6 +18,9 @@ import (
 )
 
 const paletteWidth, paletteHeight = 760, 460
+
+// listWidth is the width of the palette's list, beside the preview.
+const listWidth = 300
 
 // flashFor is how long the footer says what was done. The palette's
 // motion is style.go's; the choice and its preview change at once, as
@@ -50,9 +54,15 @@ type palette struct {
 	// scopeHistory.
 	scope   int
 	results []result
-	found   []scored // what the last filter found, for the next to narrow
-	spare   []scored // reused by filter
-	chosen  int
+	// days are the list's rows while the History scope lists without a
+	// query, its prompts under the day they were last sent: the result
+	// each row shows, or -1-day for the heading of day; nil otherwise,
+	// when each row is its result. dayCounts are each day's results.
+	days      []int
+	dayCounts [3]int
+	found     []scored // what the last filter found, for the next to narrow
+	spare     []scored // reused by filter
+	chosen    int
 	// index is the matches and the history as the search compares them.
 	index index
 	// q is the query as of the last filter, in the scope qScope.
@@ -68,11 +78,18 @@ type palette struct {
 	previewID   int64
 	previewOf   string
 	previewText string
+	// hits are where the query is found in the prompt previewed, and
+	// previewScroll how far its text is scrolled, to the first of them.
+	hits          previewHits
+	previewScroll ui.ScrollState
 
 	// opened counts the showings, each of which comes in anew.
 	opened int
 	// flash is what the footer says was just done.
 	flash flash
+	// news is how many prompts a reading just brought, which the footer
+	// says at the next frame.
+	news int
 
 	add promptForm
 	// edit is the text of modeEdit.
@@ -91,9 +108,11 @@ type palette struct {
 }
 
 // flash is a word, at the start of the palette's footer, of what was
-// just done there, and the match it did it to, shown until until.
+// just done there, and the match it did it to, shown until until, after
+// its icon: a check when none is given.
 type flash struct {
 	text  string
+	icon  *ui.SVG
 	id    int64
 	until time.Time
 }
@@ -107,6 +126,15 @@ func (p *palette) flashing(c *ui.Context) (flash, bool) {
 	}
 	c.After(left)
 	return p.flash, true
+}
+
+// arrivedNote has the footer say that a reading brought n prompts, as
+// they fade into the list, unless it says something else.
+func (p *palette) arrivedNote(n int) {
+	if p.win != nil && p.win.IsVisible() && p.mode == modeSearch {
+		p.news = n
+		p.win.Invalidate()
+	}
 }
 
 func newPalette(a *app) *palette { return &palette{a: a, selectedText: macos.SelectedText} }
@@ -177,7 +205,7 @@ func (p *palette) show() {
 	p.a.exp.Ctx.CancelPending("palette-open")
 	p.clipboard, _ = macos.PasteboardString()
 	p.previewID = 0
-	p.flash = flash{}
+	p.flash, p.news, p.hits = flash{}, 0, previewHits{}
 	p.opened++
 	clear(p.arrived)
 	p.mode = modeSearch
@@ -366,9 +394,32 @@ func (p *palette) searchView(c *ui.Context) {
 		ui.Column(c).Grow(1).Children(func() { p.empty(c) })
 	} else {
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
+			rows, row := len(p.results), func(i int) { p.row(c, i) }
 			p.list.Key = func(i int) any { return p.results[i].id() }
 			p.list.Label = func(i int) string { return p.results[i].title() }
-			ui.List(c, &p.list, len(p.results), func(i int) { p.row(c, i) }).Width(300).Padding(6).Gap(1)
+			if p.days != nil {
+				rows = len(p.days)
+				row = func(i int) {
+					if r := p.days[i]; r >= 0 {
+						p.row(c, r)
+					} else {
+						p.dayHeading(c, -1-r, i == 0)
+					}
+				}
+				p.list.Key = func(i int) any {
+					if r := p.days[i]; r >= 0 {
+						return p.results[r].id()
+					}
+					return dayKey(-1 - p.days[i])
+				}
+				p.list.Label = func(i int) string {
+					if r := p.days[i]; r >= 0 {
+						return p.results[r].title()
+					}
+					return dayNames[-1-p.days[i]]
+				}
+			}
+			ui.List(c, &p.list, rows, row).Width(listWidth).Padding(6).Gap(1)
 			ui.Divider(c).Vertical().Background(t.Border.Alpha(0.6))
 			ui.Column(c).Grow(1).Shrink(1).Children(func() { p.preview(c) })
 		})
@@ -397,11 +448,21 @@ func (p *palette) searchView(c *ui.Context) {
 // was just done, and the keys that hints shows at its end.
 func (p *palette) footer(c *ui.Context, hints func()) {
 	t := c.Theme()
+	if p.news > 0 {
+		if _, busy := p.flashing(c); !busy {
+			p.flash = flash{text: plural(p.news, "new prompt", "new prompts") + " from your agents", icon: iconHistory, until: c.Now().Add(flashFor)}
+		}
+		p.news = 0
+	}
 	ui.Row(c).Padding(8, 14).Gap(14).AlignItems(ui.Center).Background(t.Text.Alpha(0.025)).Children(func() {
 		if f, ok := p.flashing(c); ok {
 			c.Key(f.until)
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(1).Transition(flashTransition).Children(func() {
-				ui.Icon(c, iconMatched).FontSize(14).TextColor(t.Success)
+				if f.icon != nil {
+					ui.Icon(c, f.icon).FontSize(13).TextColor(t.Accent)
+				} else {
+					ui.Icon(c, iconMatched).FontSize(14).TextColor(t.Success)
+				}
 				caption(c, f.text).FontWeight(600).TextColor(t.Text).SingleLine().Ellipsis("…")
 			})
 		} else {
@@ -467,6 +528,21 @@ func (p *palette) row(c *ui.Context, i int) {
 	if row.Clicked() {
 		p.commit(r, false)
 	}
+}
+
+// dayHeading heads the prompts of a day in the History scope: its name
+// and how many, in small type, a little apart from the day above.
+func (p *palette) dayHeading(c *ui.Context, day int, first bool) {
+	t := c.Theme()
+	top := float32(12)
+	if first {
+		top = 4
+	}
+	ui.Row(c).Padding(top, 10, 4, 10).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, dayNames[day]).FontSize(11).FontWeight(600).TextColor(t.TextMuted).SingleLine()
+		ui.Spacer(c)
+		ui.Text(c, strconv.Itoa(p.dayCounts[day])).FontSize(11).TextColor(t.TextMuted.Alpha(0.7)).FontFeatures("tnum").SingleLine()
+	})
 }
 
 // titleMarked is a row's title, where the query matched it in bold.

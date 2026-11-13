@@ -80,7 +80,7 @@ func (a *app) trayMenu() *mygo.Menu {
 		mygo.Separator(),
 		&mygo.MenuItem{Label: "Search Matches and History…", Accelerator: accelerator(cfg.PaletteShortcut), Click: click(a.palette.show)},
 		&mygo.MenuItem{Label: "Agent History", Submenu: []*mygo.MenuItem{
-			{Label: "Read Agents Now", Click: click(a.scanHistory)},
+			{Label: "Read Agents Now", Click: click(a.readHistoryNow)},
 			{Label: "History Settings…", Click: click(func() { a.settings.showPage(historyPage) })},
 		}},
 		&mygo.MenuItem{Label: "New Match…", Click: click(func() { a.settings.matches.newMatch("") })},

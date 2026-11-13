@@ -32,8 +32,13 @@ such file: Accessibility capture of their input fields is left for later.
 Scans run off the main thread (`app.scanHistory`, one at a time): at
 launch, every 2 minutes, as the palette shows, from **Read Now**, the menu
 and `sokki history import`. New prompts re-filter the palette, its choice
-kept, and fade into its list. A scan that found nothing does not write
-`history.json`.
+kept, and fade into its list, the footer saying how many came in. A
+scan that found nothing does not write `history.json`. **Read Now** and
+the menu's **Read Agents Now** say in Settings, for 4 seconds, how many
+prompts were new, or that the history is up to date. Each scan notes
+which agents' files exist (`Source.files`, globbed), and Settings marks
+the others **Not found**, with a ring for a dot; a source not found is
+not read.
 
 ## Library
 
@@ -41,6 +46,12 @@ kept, and fade into its list. A scan that found nothing does not write
 `~/.config/sokki`: it is not configuration, not synced, and its writes do
 not reload the configuration (the watcher skips it too, for development,
 whose data folder is inside the configuration).
+
+A save copies the entries and maps under the store's lock and encodes
+and writes them outside it, to a temporary file synced and renamed over
+`history.json`; saves are serialized so that the last change is the last
+written. A change never writes into an entry's slices (`use` makes them
+anew), which the snapshot and `Entries` share.
 
 An `Entry` is a text, normalized for identity (`Normalize`: spaces and
 line breaks collapsed), with its count, first and last time, the agents
@@ -102,11 +113,18 @@ of the main thread, from 12.
 ## Palette
 
 - **Scopes**: All · Matches · History (`⌘1`–`⌘3`), a segmented control
-  beside the search.
+  beside the search. History without a query lists its prompts under
+  **Today**, **Yesterday** and **Earlier**, by their last use, ranked
+  within each day; the headings are rows of the list that the keys skip
+  (`palette.days` maps rows to results).
 - **Rows** of the history show the agent, after its color dot, where a
   match shows its trigger ("Claude Code +1"), and under the title the project, the count and when
   it was last sent; the preview has the whole text, the agents and the
-  project, and how often it was sent and recalled, and since when.
+  project, and how often it was sent and recalled, and since when. A
+  search marks every place its words are found in the text
+  (`Query.Ranges`) and scrolls the preview to the first, three lines
+  above it: found by shaping the text before it at the preview's width.
+  Agent colors have a light and a dark hue.
 - **Keys**: `↵` inserts without sending, so the prompt can be changed in
   the agent; `⌥↵` inserts and presses Return; `⇥` edits it in the palette
   first (`⌘↵` inserts, `⌥⌘↵` inserts and sends, the original kept,
@@ -135,6 +153,9 @@ prompt in an agent half-written. Return for `⌥↵` follows the paste after
 
 ## Not done
 
+- Hidden rows sliding out of the palette's list: MyGo's `List` (v0.5.5)
+  runs neither the Exit nor the Position transitions of its rows, so a
+  row hidden with `⌘⌫` goes at once.
 - Accessibility capture of agents without a history file (ChatGPT, Claude
   desktop, web apps).
 - A boost for the project or the agent in front: the app in front rarely

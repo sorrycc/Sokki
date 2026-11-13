@@ -27,6 +27,25 @@ type Source struct {
 	// scan reads what was added since the cursors, by file, calling
 	// emit for each prompt, and returns the cursors of what it read.
 	scan func(env Env, cur map[string]Cursor, emit func(Item)) map[string]Cursor
+	// files are the patterns (filepath.Glob's) of the files it reads,
+	// which tell whether the agent is on this Mac.
+	files func(env Env) []string
+}
+
+// found reports whether a file the source reads is there.
+func (src Source) found(env Env) bool {
+	for _, pat := range src.files(env) {
+		if m, _ := filepath.Glob(pat); len(m) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// under is files for a source of a single pattern, under the home
+// folder.
+func under(elem ...string) func(Env) []string {
+	return func(env Env) []string { return []string{filepath.Join(append([]string{env.Home}, elem...)...)} }
 }
 
 // Env is where the sources look.
@@ -41,14 +60,28 @@ type Env struct {
 
 // Sources are the agents the history reads.
 var Sources = []Source{
-	{ID: "claude", Name: "Claude Code", Where: "~/.claude/history.jsonl", scan: scanClaude},
-	{ID: "codex", Name: "Codex", Where: "~/.codex/history.jsonl", scan: scanCodex},
-	{ID: "gemini", Name: "Gemini CLI", Where: "~/.gemini/tmp/*/logs.json", scan: scanGemini},
-	{ID: "antigravity", Name: "Antigravity", Where: "~/.gemini/antigravity-cli/history.jsonl", scan: scanAntigravity},
-	{ID: "qoder", Name: "Qoder", Where: "~/.qoder/projects/*/*.jsonl", scan: scanQoder},
-	{ID: "grok", Name: "Grok", Where: "~/.grok/sessions/*/*/chat_history.jsonl", scan: scanGrok},
-	{ID: "opencode", Name: "opencode", Where: "~/.local/state/opencode/prompt-history.jsonl", scan: scanOpencode},
-	{ID: "aider", Name: "Aider", Where: ".aider.input.history in each project", scan: scanAider},
+	{ID: "claude", Name: "Claude Code", Where: "~/.claude/history.jsonl", scan: scanClaude,
+		files: under(".claude", "history.jsonl")},
+	{ID: "codex", Name: "Codex", Where: "~/.codex/history.jsonl", scan: scanCodex,
+		files: under(".codex", "history.jsonl")},
+	{ID: "gemini", Name: "Gemini CLI", Where: "~/.gemini/tmp/*/logs.json", scan: scanGemini,
+		files: under(".gemini", "tmp", "*", "logs.json")},
+	{ID: "antigravity", Name: "Antigravity", Where: "~/.gemini/antigravity-cli/history.jsonl", scan: scanAntigravity,
+		files: under(".gemini", "antigravity-cli", "history.jsonl")},
+	{ID: "qoder", Name: "Qoder", Where: "~/.qoder/projects/*/*.jsonl", scan: scanQoder,
+		files: under(".qoder", "projects", "*", "*.jsonl")},
+	{ID: "grok", Name: "Grok", Where: "~/.grok/sessions/*/*/chat_history.jsonl", scan: scanGrok,
+		files: under(".grok", "sessions", "*", "*", "chat_history.jsonl")},
+	{ID: "opencode", Name: "opencode", Where: "~/.local/state/opencode/prompt-history.jsonl", scan: scanOpencode,
+		files: func(env Env) []string { return []string{opencodeHistory(env)} }},
+	{ID: "aider", Name: "Aider", Where: ".aider.input.history in each project", scan: scanAider,
+		files: func(env Env) []string {
+			var out []string
+			for _, dir := range append([]string{env.Home}, env.Projects...) {
+				out = append(out, filepath.Join(dir, ".aider.input.history"))
+			}
+			return out
+		}},
 }
 
 // SourceName returns the name of the source of id.
@@ -79,8 +112,10 @@ func (s *Store) Scan(env Env) int {
 	was := s.cursors()
 	var items []Item
 	cursors := map[string]Cursor{}
+	found := map[string]bool{}
 	for _, src := range Sources {
-		if !st.On(src.ID) {
+		found[src.ID] = src.found(env)
+		if !st.On(src.ID) || !found[src.ID] {
 			continue
 		}
 		for k, v := range src.scan(env, was, func(it Item) {
@@ -91,6 +126,9 @@ func (s *Store) Scan(env Env) int {
 		}
 	}
 	n := s.Import(items, cursors)
+	s.mu.Lock()
+	s.found = found
+	s.mu.Unlock()
 	if n > 0 {
 		logx.Debugf("[History] %d new prompts of %d read", n, len(items))
 	}
@@ -339,16 +377,21 @@ func contentText(raw json.RawMessage) string {
 	return b.String()
 }
 
+// opencodeHistory is where opencode keeps the prompts sent.
+func opencodeHistory(env Env) string {
+	state := env.StateHome
+	if state == "" {
+		state = filepath.Join(env.Home, ".local", "state")
+	}
+	return filepath.Join(state, "opencode", "prompt-history.jsonl")
+}
+
 func scanOpencode(env Env, cur map[string]Cursor, emit func(Item)) map[string]Cursor {
 	type line struct {
 		Input string `json:"input"`
 		Mode  string `json:"mode"`
 	}
-	state := env.StateHome
-	if state == "" {
-		state = filepath.Join(env.Home, ".local", "state")
-	}
-	path := filepath.Join(state, "opencode", "prompt-history.jsonl")
+	path := opencodeHistory(env)
 	var at time.Time
 	if fi, err := os.Stat(path); err == nil {
 		at = fi.ModTime()

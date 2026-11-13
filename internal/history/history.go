@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -156,9 +157,15 @@ type Store struct {
 	counts map[string]int
 	gen    uint64
 	timer  *time.Timer
+	// found are the sources whose files the last scan found, by ID; nil
+	// before it.
+	found map[string]bool
 	// scanning serializes the scans, which read cursors before and
 	// write them after.
 	scanning sync.Mutex
+	// saving serializes the writes of the file, each of a snapshot taken
+	// as it holds it, so that the last change is the last written.
+	saving sync.Mutex
 }
 
 // Open reads the history of dir, or starts empty.
@@ -269,6 +276,14 @@ func (s *Store) SetSettings(st Settings) {
 	})
 	s.reindex()
 	s.saveLater()
+}
+
+// Found reports whether the last scan found the files of the source of
+// id, and whether there was one: true until then.
+func (s *Store) Found(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.found == nil || s.found[id]
 }
 
 // Imported returns when the sources were last read.
@@ -382,22 +397,28 @@ func (s *Store) use(text string, u Use) bool {
 	if u.Source == RecallSource {
 		e.Recalls++
 	} else if !slices.Contains(e.Sources, u.Source) {
-		e.Sources = append(e.Sources, u.Source)
+		e.Sources = append(slices.Clip(e.Sources), u.Source)
 	}
 	e.First = min(e.First, u.Time)
+	// Each slice is made anew, never changed in place: Entries and a
+	// save's snapshot share them, read outside s.mu.
 	if u.Time >= e.Last {
 		e.Last = u.Time
 		if u.Project != "" {
-			e.Projects = slices.DeleteFunc(e.Projects, func(p string) bool { return p == u.Project })
-			e.Projects = slices.Insert(e.Projects, 0, u.Project)
-			e.Projects = e.Projects[:min(len(e.Projects), keepProjects)]
+			projects := make([]string, 0, keepProjects)
+			projects = append(projects, u.Project)
+			for _, p := range e.Projects {
+				if p != u.Project && len(projects) < keepProjects {
+					projects = append(projects, p)
+				}
+			}
+			e.Projects = projects
 		}
 	}
 	at, _ := slices.BinarySearchFunc(e.Uses, u.Time, func(x Use, t int64) int { return int(x.Time - t) })
-	e.Uses = slices.Insert(e.Uses, at, u)
-	if len(e.Uses) > keepUses {
-		e.Uses = slices.Delete(e.Uses, 0, len(e.Uses)-keepUses)
-	}
+	uses := make([]Use, 0, len(e.Uses)+1)
+	uses = append(append(append(uses, e.Uses[:at]...), u), e.Uses[at:]...)
+	e.Uses = uses[max(0, len(uses)-keepUses):]
 	return !ok
 }
 
@@ -458,10 +479,7 @@ func (s *Store) BumpMatch(key string) {
 	defer s.mu.Unlock()
 	m := s.d.Matches[key]
 	m.Count++
-	m.Times = append(m.Times, s.now().Unix())
-	if len(m.Times) > keepUses {
-		m.Times = slices.Delete(m.Times, 0, len(m.Times)-keepUses)
-	}
+	m.Times = append(slices.Clip(m.Times[max(0, len(m.Times)+1-keepUses):]), s.now().Unix())
 	s.d.Matches[key] = m
 	s.gen++
 	s.saveLater()
@@ -501,36 +519,69 @@ func (s *Store) saveLater() {
 	if s.timer != nil {
 		s.timer.Stop()
 	}
-	s.timer = time.AfterFunc(saveDelay, func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.save()
-	})
+	s.timer = time.AfterFunc(saveDelay, s.save)
 }
 
-// Flush writes a pending change now, as the app quits.
+// Flush writes a pending change now, as the app quits, after a write
+// on its way.
 func (s *Store) Flush() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.timer != nil && s.timer.Stop() {
+	pending := s.timer != nil && s.timer.Stop()
+	s.mu.Unlock()
+	if pending {
 		s.save()
+	}
+	s.saving.Lock()
+	s.saving.Unlock()
+}
+
+// save writes the file: a snapshot taken under s.mu, which a change
+// never writes into (use), encoded and written without it, so that a
+// large history holds up no one, and written whole or not at all.
+func (s *Store) save() {
+	s.saving.Lock()
+	defer s.saving.Unlock()
+	s.mu.Lock()
+	s.timer = nil
+	d := s.d
+	d.Entries = slices.Clone(s.d.Entries)
+	d.Cursors = maps.Clone(s.d.Cursors)
+	d.Matches = maps.Clone(s.d.Matches)
+	s.mu.Unlock()
+	if err := writeJSON(s.path, d); err != nil {
+		logx.Errorf("Failed to save %s: %v", File, err)
 	}
 }
 
-// save writes the file; s.mu is held.
-func (s *Store) save() {
-	s.timer = nil
-	raw, err := json.Marshal(s.d)
+// writeJSON writes v to path through a file beside it, synced and then
+// renamed over it, so that a crash leaves the old file or the new one.
+func writeJSON(path string, v any) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(raw)
 	if err == nil {
-		os.MkdirAll(filepath.Dir(s.path), 0o755)
-		tmp := s.path + ".tmp"
-		if err = os.WriteFile(tmp, raw, 0o600); err == nil {
-			err = os.Rename(tmp, s.path)
-		}
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(f.Name(), 0o600)
+	}
+	if err == nil {
+		err = os.Rename(f.Name(), path)
 	}
 	if err != nil {
-		logx.Errorf("Failed to save %s: %v", File, err)
+		os.Remove(f.Name())
 	}
+	return err
 }
 
 // Normalize is what tells two prompts apart: their text with its spaces

@@ -63,7 +63,7 @@ func (s *settingsWindow) agentHistory(c *ui.Context) {
 		group(c, "Agents", func() {
 			for i, src := range history.Sources {
 				on := st.On(src.ID)
-				if agentSetting(c, src, counts[src.ID], &on, i == 0) {
+				if agentSetting(c, src, counts[src.ID], h.Found(src.ID), &on, i == 0) {
 					s.a.setSource(src.ID, on)
 				}
 			}
@@ -112,6 +112,9 @@ func (s *settingsWindow) agentHistory(c *ui.Context) {
 	}
 }
 
+// readNoteFor is how long the summary says what Read Now found.
+const readNoteFor = 4 * time.Second
+
 // historySummary heads the Agent History page: how many prompts Sokki
 // has, from how many agents, and when it last read them, or that it reads
 // them now.
@@ -134,12 +137,34 @@ func (s *settingsWindow) historySummary(c *ui.Context) {
 					title += " from " + plural(agents, "agent", "agents")
 				}
 				ui.Text(c, title).FontSize(14).FontWeight(600).FontFeatures("tnum").SingleLine()
-				// What it is doing, fading in as it changes.
-				c.Key(busy)
+				// What it is doing, or for a moment what Read Now found,
+				// fading in as it changes.
+				r := &s.a.lastRead
+				if r.fresh {
+					r.fresh, r.until = false, c.Now().Add(readNoteFor)
+				}
+				state := "read"
+				if busy {
+					state = "busy"
+				} else if left := r.until.Sub(c.Now()); left > 0 {
+					state = "found"
+					c.After(left)
+				}
+				c.Key(state)
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Transition(fadeTransition).Children(func() {
-					if busy {
+					switch state {
+					case "busy":
 						ui.Spinner(c).Size(11, 11)
 						caption(c, "Reading the agents’ history…").SingleLine()
+						return
+					case "found":
+						ui.Icon(c, iconMatched).FontSize(12).TextColor(t.Success)
+						if r.found == 0 {
+							caption(c, "Up to date: nothing new since the last reading.").SingleLine().Ellipsis("…").Shrink(1)
+						} else {
+							caption(c, plural(r.found, "new prompt", "new prompts")+" read just now.").
+								TextColor(t.Text).FontWeight(600).FontFeatures("tnum").SingleLine().Ellipsis("…").Shrink(1)
+						}
 						return
 					}
 					read := "Not read yet."
@@ -149,15 +174,16 @@ func (s *settingsWindow) historySummary(c *ui.Context) {
 					caption(c, read+" New prompts come in every 2 minutes and as the palette opens.").SingleLine().Ellipsis("…").Shrink(1)
 				})
 			})
-			ui.Button(c, "Read Now").Disabled(busy).Shrink(0).OnClick(s.a.scanHistory)
+			ui.Button(c, "Read Now").Disabled(busy).Shrink(0).OnClick(s.a.readHistoryNow)
 		})
 	})
 }
 
 // agentSetting is the row of an agent on the Agent History page: its
-// dot, dimmed when it is not read, its name and where it reads, the
-// prompts it gave, and its switch, which agentSetting reports changed.
-func agentSetting(c *ui.Context, src history.Source, n int, on *bool, first bool) bool {
+// dot, dimmed when it is not read or not on this Mac, its name and where
+// it reads, the prompts it gave or that its files were not found, and
+// its switch, which agentSetting reports changed.
+func agentSetting(c *ui.Context, src history.Source, n int, found bool, on *bool, first bool) bool {
 	t := c.Theme()
 	row := ui.Row(c).Padding(9, 14).Gap(12).AlignItems(ui.Center).MinHeight(44)
 	if !first {
@@ -165,20 +191,32 @@ func agentSetting(c *ui.Context, src history.Source, n int, on *bool, first bool
 	}
 	changed := false
 	row.Children(func() {
-		tint := agentTint(t, src.ID)
-		if !*on {
+		// A ring for an agent not on this Mac, a dim dot for one not read.
+		tint, ring := agentTint(t, src.ID), t.Text.Alpha(0)
+		switch {
+		case !found:
+			tint, ring = t.Text.Alpha(0), t.Text.Alpha(0.35)
+		case !*on:
 			tint = t.Text.Alpha(0.2)
 		}
-		ui.Box(c).Size(8, 8).Radius(4).Background(row.AnimateColor("dot", tint, hoverAnim)).Shrink(0)
+		ui.Box(c).Size(8, 8).Radius(4).Background(row.AnimateColor("dot", tint, hoverAnim)).
+			Border(1, row.AnimateColor("ring", ring, hoverAnim)).Shrink(0)
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
 			label := ui.Text(c, src.Name)
-			if !*on {
+			if !*on || !found {
 				label.TextColor(t.TextMuted)
 			}
-			caption(c, src.Where).Font("monospace").SingleLine().Ellipsis("…")
+			where := caption(c, src.Where).Font("monospace").SingleLine().Ellipsis("…")
+			if !found {
+				where.TextColor(t.TextMuted.Alpha(0.7))
+			}
 		})
-		if n > 0 {
+		switch {
+		case n > 0:
 			caption(c, plural(n, "prompt", "prompts")).FontFeatures("tnum").SingleLine().Shrink(0)
+		case !found:
+			caption(c, "Not found").SingleLine().Shrink(0).Padding(1, 6).Radius(5).Border(0.5, t.Text.Alpha(0.14)).
+				Tooltip("Nothing at " + src.Where + ": this agent isn’t used on this Mac, or keeps no history there.")
 		}
 		changed = ui.Switch(c, on).Label("Read " + src.Name).Changed()
 	})

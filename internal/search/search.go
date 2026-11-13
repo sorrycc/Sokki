@@ -241,6 +241,41 @@ func atWordStart(s string, i int, w string) bool {
 	return !unicode.IsLetter(prev) && !unicode.IsDigit(prev)
 }
 
+// Ranges returns the byte ranges of s where the query's words are found,
+// every time each is, sorted and merged, at most limit of them: no
+// fuzzy match, for a long text shown whole. A text whose case changes
+// its length has none.
+func (q Query) Ranges(s string, limit int) [][2]int {
+	if len(q.Words) == 0 {
+		return nil
+	}
+	f := strings.ToLower(s)
+	if len(f) != len(s) {
+		return nil
+	}
+	var out [][2]int
+	for _, w := range q.Words {
+		for at := 0; len(out) < limit; {
+			i := strings.Index(f[at:], w)
+			if i < 0 {
+				break
+			}
+			out = append(out, [2]int{at + i, at + i + len(w)})
+			at += i + len(w)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i][0] < out[j][0] })
+	merged := out[:0]
+	for _, r := range out {
+		if n := len(merged); n > 0 && r[0] <= merged[n-1][1] {
+			merged[n-1][1] = max(merged[n-1][1], r[1])
+			continue
+		}
+		merged = append(merged, r)
+	}
+	return merged
+}
+
 // Marks returns where q matches s, as rune indexes in order, for the
 // palette to show in bold, or nil. A text whose case folds to more or
 // fewer runes has none.

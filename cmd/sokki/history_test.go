@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -309,4 +312,145 @@ func TestHistoryCommand(t *testing.T) {
 	if _, code, _ = sokki(t, a, "", "history", "clear"); code != 0 || len(a.history.Entries()) != 0 {
 		t.Fatal("clear")
 	}
+}
+
+func TestPaletteGroupsHistoryByDay(t *testing.T) {
+	a := testApp(t)
+	y, m, d := time.Now().Date()
+	midnight := time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+	a.history.Import([]history.Item{
+		{Source: "claude", Text: "Sent early this morning, a prompt", Time: midnight},
+		{Source: "codex", Text: "Sent last night, before midnight", Time: midnight.Add(-time.Hour)},
+		{Source: "codex", Text: "Sent last night, before midnight", Time: midnight.Add(-2 * time.Hour)},
+		{Source: "gemini", Text: "Sent days ago, and often since", Time: midnight.Add(-30 * time.Hour)},
+		{Source: "gemini", Text: "Sent days ago, and often since", Time: midnight.Add(-50 * time.Hour)},
+		{Source: "gemini", Text: "Sent days ago, and often since", Time: midnight.Add(-70 * time.Hour)},
+		{Source: "qoder", Text: "Sent the day before yesterday", Time: midnight.Add(-26 * time.Hour)},
+	}, nil)
+	p := a.palette
+	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	tt.Key(ui.Cmd, ui.Key3)
+	// The most used first, but under the day it was last sent.
+	if want := []int{-1 - dayToday, 0, -1 - dayYesterday, 1, -1 - dayEarlier, 2, 3}; !slices.Equal(p.days, want) {
+		t.Fatalf("rows %v", p.days)
+	}
+	if p.results[2].e.Count != 3 {
+		t.Fatalf("earlier not by use: %+v", p.results[2].e)
+	}
+	for _, want := range []string{"Today", "Yesterday", "Earlier"} {
+		if !tt.HasText(want) {
+			t.Fatalf("lacks %q: %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "palette-history-days")
+	// The keys go from prompt to prompt, over the headings.
+	for i := 1; i < 4; i++ {
+		tt.Key(0, ui.KeyDown)
+		if p.chosen != i {
+			t.Fatalf("down %d chose %d", i, p.chosen)
+		}
+	}
+	tt.Key(0, ui.KeyDown)
+	if p.chosen != 3 {
+		t.Fatalf("down past the end chose %d", p.chosen)
+	}
+	tt.Key(0, ui.KeyUp)
+	if r, _ := p.selected(); r.e.Text != "Sent days ago, and often since" {
+		t.Fatalf("up chose %q", r.e.Text)
+	}
+	// A search ranks without days, as do the other scopes.
+	p.query = "sent"
+	p.filter()
+	if p.days != nil {
+		t.Fatal("days in a search")
+	}
+	p.query = ""
+	tt.Key(ui.Cmd, ui.Key1)
+	if p.days != nil {
+		t.Fatal("days in All")
+	}
+}
+
+func TestReadNowSaysWhatItFound(t *testing.T) {
+	a := testApp(t)
+	withHistory(a)
+	tt := ui.NewTester(a.settings.view, 780, 900)
+	a.settings.setPage(historyPage)
+	tt.Frame()
+	a.lastRead = historyRead{found: 2, fresh: true}
+	tt.Frame()
+	tt.Advance(settle)
+	if !tt.HasText("2 new prompts read just now.") {
+		t.Fatalf("no news: %q", tt.Texts())
+	}
+	shot(t, tt, "history-page-found")
+	tt.Advance(readNoteFor)
+	if tt.HasText("2 new prompts read just now.") || !tt.HasText("Read just now. New prompts come in every 2 minutes and as the palette opens.") {
+		t.Fatalf("news stays: %q", tt.Texts())
+	}
+	a.lastRead = historyRead{fresh: true}
+	tt.Frame()
+	if !tt.HasText("Up to date: nothing new since the last reading.") {
+		t.Fatalf("not up to date: %q", tt.Texts())
+	}
+
+	// The palette's footer says what came in.
+	p := a.palette
+	p.filter()
+	pt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	p.news = 3
+	pt.Frame()
+	pt.Advance(settle)
+	if !pt.HasText("3 new prompts from your agents") {
+		t.Fatalf("no footer news: %q", pt.Texts())
+	}
+	shot(t, pt, "palette-history-news")
+}
+
+func TestHistoryPageSaysWhatIsNotFound(t *testing.T) {
+	a := testApp(t)
+	p := filepath.Join(a.historyHome, ".codex", "history.jsonl")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte(`{"ts":1785809189,"text":"Bump the version and tag the release"}`+"\n"), 0o644)
+	a.history.Scan(a.historyEnv())
+	tt := ui.NewTester(a.settings.view, 780, 900)
+	a.settings.setPage(historyPage)
+	tt.Frame()
+	tt.SetDark(true)
+	tt.Frame()
+	tt.Advance(settle)
+	if n := strings.Count(strings.Join(tt.Texts(), "\n"), "Not found"); n != len(history.Sources)-1 {
+		t.Fatalf("%d not found: %q", n, tt.Texts())
+	}
+	shot(t, tt, "history-page-not-found-dark")
+}
+
+func TestPreviewMarksWhereTheSearchFound(t *testing.T) {
+	a := testApp(t)
+	var b strings.Builder
+	for i := range 50 {
+		fmt.Fprintf(&b, "Step %d: read the next part of the log and say what it does.\n", i)
+		if i == 30 {
+			b.WriteString("Then write the summary of the incident for the team.\n")
+		}
+	}
+	a.history.Import([]history.Item{{Source: "claude", Text: b.String(), Time: time.Now()}}, nil)
+	p := a.palette
+	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	tt.Key(ui.Cmd, ui.Key3)
+	tt.Frame()
+	if p.previewScroll.Y != 0 || p.hits.ranges != nil {
+		t.Fatalf("scrolled %v without a query", p.previewScroll.Y)
+	}
+	p.query = "incident"
+	p.filter()
+	tt.Frame()
+	tt.Advance(settle)
+	if len(p.hits.ranges) != 1 || p.previewScroll.Y < 600 || p.previewScroll.Y >= p.previewScroll.MaxY {
+		t.Fatalf("hits %v, scrolled %v", p.hits.ranges, p.previewScroll.Y)
+	}
+	if !tt.HasText("incident") {
+		t.Fatalf("match not in view: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-history-preview-hits")
 }
