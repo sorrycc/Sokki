@@ -69,6 +69,20 @@ Palette
   sokki render <key>                          its text, variables filled in
   sokki copy <key>                            the same, put on the clipboard
 
+Agent history (the prompts sent in Claude Code, Codex, Gemini and others)
+  sokki history [search] [<query>] [--limit N]
+                                              the prompts, best first; most used
+                                              without a query; @agent and #project
+                                              filter
+  sokki history show|copy|hide|unhide <id>    an id of the search's, or its start
+  sokki history sources                       the agents read, with their counts
+  sokki history on|off <agent>                read an agent or stop: claude, codex,
+                                              gemini, antigravity, qoder, grok,
+                                              opencode, aider
+  sokki history import                        read what the agents added, now
+  sokki history clear [--reimport]            forget it; --reimport reads every
+                                              agent again from the start
+
 Settings
   sokki config                                every setting
   sokki config get <key>
@@ -190,7 +204,7 @@ func (f flags) str(name string) string {
 func (f flags) bool(name string) bool { _, ok := f[name]; return ok }
 
 // boolFlags take no value.
-var boolFlags = []string{"text", "dev", "help", "prompts", "triggers", "disabled", "reveal", "wait"}
+var boolFlags = []string{"text", "dev", "help", "prompts", "triggers", "disabled", "reveal", "wait", "reimport"}
 
 // parseArgs splits args into words and options, which may come anywhere;
 // "--" ends the options.
@@ -465,6 +479,8 @@ func build(pos []string, fl flags, piped func() (string, error)) (Request, time.
 			return req("insights.clear")
 		}
 		return fail(fmt.Errorf("unknown command: insights %s", sub))
+	case "history":
+		return buildHistory(sub, rest, fl, allowed, words, args)
 	case "activity":
 		if err := firstErr(allowed("reveal"), words(0, "")); err != nil {
 			return fail(err)
@@ -475,6 +491,62 @@ func build(pos []string, fl flags, piped func() (string, error)) (Request, time.
 		return req("activity")
 	}
 	return fail(fmt.Errorf("unknown command: %s", cmd))
+}
+
+// buildHistory builds a request of sokki history.
+func buildHistory(sub string, rest []string, fl flags, allowed func(...string) error,
+	words func(int, string) error, args map[string]any) (Request, time.Duration, error) {
+	fail := func(err error) (Request, time.Duration, error) { return Request{}, 0, err }
+	req := func(name string, d time.Duration) (Request, time.Duration, error) {
+		return Request{Cmd: name, Args: args}, d, nil
+	}
+	switch sub {
+	case "show", "copy", "hide", "unhide":
+		if err := firstErr(allowed(), words(2, "the prompt's id")); err != nil {
+			return fail(err)
+		}
+		args["id"] = rest[1]
+		return req("history."+sub, callTimeout)
+	case "sources":
+		if err := firstErr(allowed(), words(1, "")); err != nil {
+			return fail(err)
+		}
+		return req("history.sources", callTimeout)
+	case "on", "off":
+		if err := firstErr(allowed(), words(2, "the agent")); err != nil {
+			return fail(err)
+		}
+		args["source"], args["on"] = rest[1], sub == "on"
+		return req("history.source", callTimeout)
+	case "import":
+		if err := firstErr(allowed(), words(1, "")); err != nil {
+			return fail(err)
+		}
+		return req("history.import", waitTimeout)
+	case "clear":
+		if err := firstErr(allowed("reimport"), words(1, "")); err != nil {
+			return fail(err)
+		}
+		if fl.bool("reimport") {
+			args["reimport"] = true
+		}
+		return req("history.clear", callTimeout)
+	}
+	if err := allowed("limit"); err != nil {
+		return fail(err)
+	}
+	if sub == "search" {
+		rest = rest[1:]
+	}
+	args["query"] = strings.Join(rest, " ")
+	if v := fl.str("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return fail(errors.New("--limit takes a number"))
+		}
+		args["limit"] = n
+	}
+	return req("history.search", callTimeout)
 }
 
 // firstErr is the first error of errs.

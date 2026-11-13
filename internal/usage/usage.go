@@ -1,5 +1,6 @@
 // Package usage logs the expansions of the last 7 days, in usage.json,
-// for the Insights page. It never keeps what was typed, only the trigger.
+// for the Insights page. It never keeps what was typed, only the trigger,
+// or for a prompt of the agents' history the agent.
 package usage
 
 import (
@@ -24,10 +25,14 @@ const (
 	saveDelay = 300 * time.Millisecond
 )
 
-// Event is an expansion of a trigger.
+// Event is an expansion of a trigger, or an insertion of a prompt of the
+// agents' history.
 type Event struct {
 	Time    time.Time `json:"time"`
 	Trigger string    `json:"trigger"`
+	// Agent is, for a prompt of the history, the agent it was first sent
+	// in; Trigger is then "".
+	Agent string `json:"agent,omitempty"`
 	// Palette is whether it was inserted from the palette, not typed.
 	Palette bool `json:"palette,omitempty"`
 	// App is the bundle identifier of the app it was typed in, AppName
@@ -127,8 +132,9 @@ type Summary struct {
 	Palette int
 	// Triggers is the keys expanded, most first; Apps the apps expanded
 	// in, most first, insertions from the palette counting for the app
-	// they went to.
-	Triggers, Apps []Count
+	// they went to; Agents the agents whose prompts were inserted from
+	// the history, most first.
+	Triggers, Apps, Agents []Count
 }
 
 // ActiveDays returns how many of the last 7 days had an expansion.
@@ -163,6 +169,7 @@ func (s *Store) summed() *sums {
 	m.Summary = Summary{Rev: m.Summary.Rev + 1, Total: len(s.events)}
 	triggers := map[string]*Count{}
 	apps := map[string]*Count{}
+	agents := map[string]*Count{}
 	for _, e := range s.events {
 		t := e.Time.In(now.Location())
 		day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
@@ -175,12 +182,16 @@ func (s *Store) summed() *sums {
 		if e.Palette {
 			m.Palette++
 		}
-		add(triggers, e.Trigger, e.Trigger)
+		if e.Agent != "" {
+			add(agents, e.Agent, e.Agent)
+		} else {
+			add(triggers, e.Trigger, e.Trigger)
+		}
 		if e.App != "" {
 			add(apps, e.App, cmp.Or(e.AppName, e.App))
 		}
 	}
-	m.Triggers, m.Apps = sorted(triggers), sorted(apps)
+	m.Triggers, m.Apps, m.Agents = sorted(triggers), sorted(apps), sorted(agents)
 	return m
 }
 

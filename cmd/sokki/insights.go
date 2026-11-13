@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"sokki/internal/history"
 	"sokki/internal/model"
 	"sokki/internal/usage"
 )
@@ -129,6 +130,9 @@ func (s *settingsWindow) insightCards(c *ui.Context, m usage.Summary, ic *insigh
 	card(c, "Typed vs Palette", nil, func() { sourceSplit(c, m.Total-m.Palette, m.Palette) })
 	if len(m.Apps) > 0 {
 		card(c, "By App", nil, func() { byApp(c, m.Apps, m.Total) })
+	}
+	if len(m.Agents) > 0 {
+		card(c, "From Agent History", nil, func() { byApp(c, agentCounts(m.Agents), m.Total) })
 	}
 	s.unused(c, ic.idle)
 }
@@ -340,6 +344,17 @@ func byApp(c *ui.Context, apps []usage.Count, total int) {
 			})
 		}
 	})
+}
+
+// agentCounts are the counts of the agents whose prompts were inserted,
+// by their names.
+func agentCounts(cs []usage.Count) []usage.Count {
+	out := make([]usage.Count, len(cs))
+	for i, c := range cs {
+		c.Name = history.SourceName(c.Key)
+		out[i] = c
+	}
+	return out
 }
 
 // unused lists the matches on that weren't expanded in the past 7 days,

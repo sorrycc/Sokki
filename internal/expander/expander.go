@@ -254,13 +254,23 @@ func clipboardText() string {
 }
 
 // InjectFromPalette types a match chosen in the palette, once the app
-// that was in front has the keyboard again.
-func (e *Expander) InjectFromPalette(m model.Match) {
+// that was in front has the keyboard again, and with send presses Return
+// after it.
+func (e *Expander) InjectFromPalette(m model.Match, send bool) {
 	rendered := engine.Render(m.Replace, clipboardText, time.Now())
+	e.InsertFromPalette(rendered, send, func() { e.expanded(m, rendered, true) })
+}
+
+// InsertFromPalette puts text chosen in the palette into the app that
+// was in front, once it has the keyboard again, as Injector.Insert does,
+// then calls done.
+func (e *Expander) InsertFromPalette(text string, send bool, done func()) {
 	time.AfterFunc(30*time.Millisecond, func() {
 		e.Async(func() {
-			e.Injector.Inject(rendered, 0)
-			e.expanded(m, rendered, true)
+			e.Injector.Insert(text, send)
+			if done != nil {
+				done()
+			}
 		})
 	})
 }

@@ -9,7 +9,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater/native"
@@ -17,6 +19,7 @@ import (
 	"sokki/internal/cli"
 	"sokki/internal/config"
 	"sokki/internal/expander"
+	"sokki/internal/history"
 	"sokki/internal/logx"
 	"sokki/internal/macos"
 	"sokki/internal/model"
@@ -32,13 +35,20 @@ const bundleID = "com.sokki.Sokki"
 // app is Sokki's state. Its fields are read and changed on the main
 // thread; the expander's handlers hand their work to it with post.
 type app struct {
-	dir       config.Dir
-	store     *config.Store
-	recency   *config.Recency
-	usage     *usage.Store
-	prefs     *prefs.Store
-	exp       *expander.Expander
-	telemetry *telemetry.Config
+	dir     config.Dir
+	store   *config.Store
+	recency *config.Recency
+	usage   *usage.Store
+	// history is the prompts sent to agents, and the uses of matches.
+	history *history.Store
+	// scanning is set while the history's sources are read.
+	scanning atomic.Bool
+	// historyHome is where the agents keep their history, "" for the
+	// home folder; tests have their own.
+	historyHome string
+	prefs       *prefs.Store
+	exp         *expander.Expander
+	telemetry   *telemetry.Config
 
 	tray   *mygo.Tray
 	secure bool
@@ -155,6 +165,7 @@ func (a *app) ready() {
 	a.store = config.NewStore(a.dir)
 	a.recency = config.NewRecency(a.dir)
 	a.usage = usage.Open(string(a.dir))
+	a.history = history.Open(data)
 	a.exp = expander.New(expander.Handlers{
 		SecureInputChanged: func(s bool) { a.post(func() { a.secure = s; a.updateTray() }) },
 		Toggled:            func(on bool) { a.post(func() { a.store.Config.Enabled = on; a.updateTray() }) },
@@ -185,6 +196,12 @@ func (a *app) ready() {
 	a.cloud.start()
 	a.startControl()
 	a.loadCommand()
+	a.scanHistory()
+	go func() {
+		for range time.Tick(historyEvery) {
+			a.scanHistory()
+		}
+	}()
 
 	// Typing in another app starts afresh; leaving one drops a match held
 	// for a longer trigger.
@@ -222,6 +239,7 @@ func (a *app) ready() {
 		a.cloud.flush()
 		a.recency.Flush()
 		a.usage.Flush()
+		a.history.Flush()
 		if a.tray != nil {
 			a.tray.Destroy()
 		}
@@ -289,7 +307,8 @@ func (a *app) watchConfig() {
 			for _, e := range events {
 				base := path.Base(e.Path)
 				if !strings.HasPrefix(e.Path, "logs/") && e.Path != "logs" && !strings.HasPrefix(base, ".sokki-") &&
-					!strings.HasPrefix(base, syncFile) && base != tokenKey && !strings.HasPrefix(base, usage.File) {
+					!strings.HasPrefix(base, syncFile) && base != tokenKey && !strings.HasPrefix(base, usage.File) &&
+					!strings.HasPrefix(base, history.File) {
 					relevant = true
 				}
 			}
@@ -353,6 +372,7 @@ func (a *app) welcome() {
 func (a *app) recordEvent(ev model.HUDEvent) {
 	if ev.Verdict == model.VerdictMatched && ev.MatchedTrigger != "" {
 		a.recency.Bump(ev.MatchedTrigger)
+		a.history.BumpMatch(ev.MatchedTrigger)
 		a.settings.invalidate()
 	}
 	a.hud.record(ev)
@@ -364,6 +384,50 @@ func (a *app) logUse(m model.Match, saved int, fromPalette bool) {
 	id, name := macos.FrontmostApp()
 	a.usage.Log(usage.Event{Trigger: m.Key(), Palette: fromPalette, App: id, AppName: name, Saved: saved})
 	a.settings.invalidate()
+}
+
+// used counts a use of m from the palette or the sokki command, which
+// the palette ranks by.
+func (a *app) used(m model.Match) {
+	a.recency.Bump(m.Key())
+	a.history.BumpMatch(m.Key())
+}
+
+// logRecall counts a prompt of the agents' history that the palette
+// inserted for Insights, in the app in front, which it went to.
+func (a *app) logRecall(agent, text string) {
+	id, name := macos.FrontmostApp()
+	a.usage.Log(usage.Event{Agent: agent, Palette: true, App: id, AppName: name, Saved: utf8.RuneCountInString(text)})
+	a.settings.invalidate()
+}
+
+// historyEvery is how often the agents' history is read, besides as the
+// palette shows.
+const historyEvery = 2 * time.Minute
+
+// historyEnv is where the history's sources look.
+func (a *app) historyEnv() history.Env {
+	return history.Env{Home: a.historyHome, StateHome: os.Getenv("XDG_STATE_HOME")}
+}
+
+// scanHistory reads what the agents added to their history since the
+// last reading, away from the main thread, unless a reading runs.
+func (a *app) scanHistory() {
+	if !a.scanning.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer a.scanning.Store(false)
+		gen := a.history.Gen()
+		a.history.Scan(a.historyEnv())
+		changed := a.history.Gen() != gen
+		a.post(func() {
+			if changed {
+				a.palette.invalidate()
+			}
+			a.settings.invalidate()
+		})
+	}()
 }
 
 // accessibilitySettings is the pane of System Settings that grants Sokki

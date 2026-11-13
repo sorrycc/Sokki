@@ -24,6 +24,7 @@ const (
 	filePage      = "file:"
 	generalPage   = "general"
 	insightsPage  = "insights"
+	historyPage   = "history"
 	shortcutsPage = "shortcuts"
 	accountPage   = "account"
 	privacyPage   = "privacy"
@@ -34,7 +35,7 @@ const (
 const sidebarWidth = 210
 
 // settingsWindow is the Settings window: the matches, general settings,
-// insights, shortcuts, the account, privacy and about. It is made the first time it shows, and
+// insights, the agents' history, shortcuts, the account, privacy and about. It is made the first time it shows, and
 // hides rather than closes.
 type settingsWindow struct {
 	a    *app
@@ -47,6 +48,8 @@ type settingsWindow struct {
 	confirmReset bool
 	confirmClear bool
 	unusedShown  bool
+	// historyForm is what the Agent History page edits.
+	historyForm historyForm
 	// insightsCache is what the Insights page counted last.
 	insightsCache insightsCache
 	confirmOut    bool
@@ -120,7 +123,7 @@ func (s *settingsWindow) setPage(page string) {
 
 func (s *settingsWindow) view(c *ui.Context) {
 	t := c.Theme()
-	pages := []string{matchesPage, generalPage, insightsPage, shortcutsPage, accountPage, privacyPage, aboutPage}
+	pages := []string{matchesPage, generalPage, insightsPage, historyPage, shortcutsPage, accountPage, privacyPage, aboutPage}
 	for i, p := range pages {
 		c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { s.setPage(p) })
 	}
@@ -149,6 +152,8 @@ func (s *settingsWindow) view(c *ui.Context) {
 				s.general(c)
 			case s.page == insightsPage:
 				s.insights(c)
+			case s.page == historyPage:
+				s.agentHistory(c)
 			case s.page == shortcutsPage:
 				s.shortcuts(c)
 			case s.page == accountPage:
@@ -189,6 +194,9 @@ func (s *settingsWindow) sidebar(c *ui.Context) {
 		ui.SidebarSection(c, "Settings", nil, func() {
 			ui.SidebarItem(c, generalPage, iconGeneral, "General")
 			ui.SidebarItem(c, insightsPage, iconInsights, "Insights")
+			ui.SidebarItem(c, historyPage, iconHistory, "Agent History").Children(func() {
+				sidebarCount(c, len(s.a.history.Entries()))
+			})
 			ui.SidebarItem(c, shortcutsPage, iconKeyboard, "Shortcuts")
 			ui.SidebarItem(c, accountPage, iconCloud, "Account")
 			ui.SidebarItem(c, privacyPage, iconPrivacy, "Privacy")

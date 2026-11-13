@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"sokki/internal/history"
 	"sokki/internal/model"
 	"sokki/internal/usage"
 )
@@ -69,6 +70,31 @@ func BenchmarkPaletteFilter(b *testing.B) {
 	manyMatches(a, 2000)
 	p := a.palette
 	queries := []string{"s", "sn", "sni", "snip", "1", "12", ""}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		p.query = queries[i%len(queries)]
+		p.filter()
+	}
+}
+
+// BenchmarkPaletteHistory is the palette's ranking over many matches and
+// a large history of long prompts.
+func BenchmarkPaletteHistory(b *testing.B) {
+	a := testApp(b)
+	manyMatches(a, 2000)
+	items := make([]history.Item, 5000)
+	now := time.Now()
+	for i := range items {
+		items[i] = history.Item{
+			Source: []string{"claude", "codex", "qoder"}[i%3], Project: fmt.Sprintf("/p/proj%d", i%40),
+			Text: strings.Repeat(fmt.Sprintf("Review change %d of the parser, then write a test for it. ", i), 1+i%6),
+			Time: now.Add(-time.Duration(i) * time.Minute),
+		}
+	}
+	a.history.Import(items, nil)
+	p := a.palette
+	queries := []string{"r", "re", "rev", "review", "review te", "review test", "", "@codex", "@codex par"}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {

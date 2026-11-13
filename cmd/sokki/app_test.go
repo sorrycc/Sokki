@@ -16,6 +16,7 @@ import (
 	"sokki/internal/cloudsync"
 	"sokki/internal/config"
 	"sokki/internal/expander"
+	"sokki/internal/history"
 	"sokki/internal/logx"
 	"sokki/internal/model"
 	"sokki/internal/mon"
@@ -35,6 +36,8 @@ func testApp(t testing.TB) *app {
 	a.store = config.NewStore(a.dir)
 	a.recency = config.NewRecency(a.dir)
 	a.usage = usage.Open(root)
+	a.history = history.Open(root)
+	a.historyHome = filepath.Join(root, "home")
 	a.prefs = prefs.Open(filepath.Join(root, "prefs.json"))
 	a.exp = expander.New(expander.Handlers{})
 	a.store.OnMatchesChanged = func() { a.exp.SetMatches(a.store.Matches) }
@@ -197,17 +200,24 @@ func TestSettingsPages(t *testing.T) {
 		t.Fatalf("Insights: %q", tt.Texts())
 	}
 	tt.Key(ui.Cmd, ui.Key4)
+	for _, want := range []string{"Agent History", "Claude Code", "Codex", "Read Now", "Prompts containing"} {
+		if !tt.HasText(want) {
+			t.Fatalf("Agent History lacks %q: %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "history")
+	tt.Key(ui.Cmd, ui.Key5)
 	for _, want := range []string{"Search matches", "Pause or resume", "Recent Activity"} {
 		if !tt.HasText(want) {
 			t.Fatalf("Shortcuts lacks %q: %q", want, tt.Texts())
 		}
 	}
 	shot(t, tt, "shortcuts")
-	tt.Key(ui.Cmd, ui.Key5)
+	tt.Key(ui.Cmd, ui.Key6)
 	if !tt.HasText("Sign in to sync") {
 		t.Fatalf("Account: %q", tt.Texts())
 	}
-	tt.Key(ui.Cmd, ui.Key6)
+	tt.Key(ui.Cmd, ui.Key7)
 	if !tt.HasText("Telemetry is off in this build") {
 		t.Fatalf("Privacy: %q", tt.Texts())
 	}
@@ -217,7 +227,7 @@ func TestSettingsPages(t *testing.T) {
 		t.Fatalf("Privacy: %q", tt.Texts())
 	}
 	shot(t, tt, "privacy")
-	tt.Key(ui.Cmd, ui.Key7)
+	tt.Key(ui.Cmd, ui.Key8)
 	if !tt.HasText("Sokki") || !tt.HasText("Release Notes") {
 		t.Fatalf("About: %q", tt.Texts())
 	}
@@ -416,7 +426,7 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	p := a.palette
 	p.query = "sig"
 	p.filter()
-	if len(p.results) == 0 || p.results[0].Trigger != ":sig" {
+	if len(p.results) == 0 || p.results[0].m.Trigger != ":sig" {
 		t.Fatalf("results %+v", p.results)
 	}
 	p.query = ""
@@ -459,7 +469,7 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	a.store.Update(m)
 	p.query = "greet"
 	p.filter()
-	if len(p.results) != 1 || p.results[0].Trigger != ":hello" {
+	if len(p.results) != 1 || p.results[0].m.Trigger != ":hello" {
 		t.Fatalf("edited label not searched: %+v", p.results)
 	}
 }
@@ -727,7 +737,7 @@ func TestPaletteQuickAddsAPrompt(t *testing.T) {
 	if !ok || m.Trigger != "" || m.SourceFile != config.PromptFile || m.Replace != "Review this diff for bugs.\nBe brief." {
 		t.Fatalf("saved %+v %v", m, ok)
 	}
-	if got, ok := p.selected(); !ok || got.ID != m.ID {
+	if got, ok := p.selected(); !ok || got.id() != m.ID {
 		t.Fatalf("chosen %+v", got)
 	}
 	if !tt.HasText("Palette") {

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,10 +19,12 @@ import (
 	"sokki/internal/cloudsync"
 	"sokki/internal/config"
 	"sokki/internal/engine"
+	"sokki/internal/history"
 	"sokki/internal/logx"
 	"sokki/internal/macos"
 	"sokki/internal/model"
 	"sokki/internal/prefs"
+	"sokki/internal/search"
 	"sokki/internal/usage"
 )
 
@@ -87,6 +91,14 @@ func (a *app) control(ctx context.Context, req cli.Request) (any, error) {
 		return a.ctlSync(ctx)
 	case "signin":
 		return a.ctlSignIn(ctx, g.bool("wait"))
+	case "history.import":
+		// Reading every source may take a while: not on the main thread.
+		added := a.history.Scan(a.historyEnv())
+		a.onMainWait(func() {
+			a.palette.invalidate()
+			a.settings.invalidate()
+		})
+		return map[string]any{"new": added, "prompts": len(a.history.Entries())}, nil
 	}
 	a.onMainWait(func() { out, err = a.controlMain(req.Cmd, g) })
 	return out, err
@@ -141,7 +153,7 @@ func (a *app) controlMain(cmd string, g args) (any, error) {
 		text := engine.Render(m.Replace, func() string { s, _ := macos.PasteboardString(); return s }, time.Now())
 		if cmd == "copy" {
 			copyText(text)
-			a.recency.Bump(m.Key())
+			a.used(m)
 			return map[string]any{"copied": matchTitle(m), "text": text}, nil
 		}
 		return map[string]any{"title": matchTitle(m), "text": text}, nil
@@ -166,6 +178,19 @@ func (a *app) controlMain(cmd string, g args) (any, error) {
 		a.prefs.ResetInstallID()
 		a.settings.invalidate()
 		return a.ctlPrivacy(), nil
+	case "history.search":
+		return a.ctlHistorySearch(g.str("query"), g.int("limit", 20)), nil
+	case "history.show", "history.copy", "history.hide", "history.unhide":
+		return a.ctlHistoryEntry(cmd, g.str("id"))
+	case "history.sources":
+		return a.ctlHistorySources(), nil
+	case "history.source":
+		return a.ctlHistorySource(g.str("source"), g.bool("on"))
+	case "history.clear":
+		a.history.Clear(g.bool("reimport"))
+		a.palette.invalidate()
+		a.settings.invalidate()
+		return map[string]any{"cleared": true, "reimport": g.bool("reimport")}, nil
 	case "insights":
 		return a.ctlInsights(), nil
 	case "insights.clear":
@@ -284,7 +309,7 @@ func (a *app) ctlFiles() []map[string]any {
 }
 
 func (a *app) ctlMatches(g args) []map[string]any {
-	q := engine.Fold(strings.TrimSpace(g.str("query")))
+	q := search.Parse(g.str("query"))
 	out := []map[string]any{}
 	for _, m := range a.store.Matches {
 		switch {
@@ -294,9 +319,9 @@ func (a *app) ctlMatches(g args) []map[string]any {
 			g.bool("disabled") && m.Enabled:
 			continue
 		}
-		if len(q) > 0 {
-			f := folded{trigger: engine.Fold(m.Trigger), label: engine.Fold(m.Label), replace: engine.Fold(head(m.Replace, 200))}
-			if _, ok := matchScore(q, f); !ok {
+		if !q.Empty() {
+			d := search.NewDoc(m.Trigger, m.Label, m.Replace, []string{"sokki", m.SourceFile}, nil)
+			if _, ok := q.Score(&d); !ok {
 				continue
 			}
 		}
@@ -435,32 +460,14 @@ func (a *app) ctlDuplicate(g args) (any, error) {
 
 // ctlSearch ranks the enabled matches for query as the palette does.
 func (a *app) ctlSearch(query string, limit int) []map[string]any {
-	q := engine.Fold(strings.TrimSpace(query))
-	recent := a.recency.Snapshot()
-	var found []scored
-	keys := make([]string, len(a.store.Matches))
-	for i, m := range a.store.Matches {
-		keys[i] = m.Key()
-		if !m.Enabled {
-			continue
-		}
-		f := folded{trigger: engine.Fold(m.Trigger), label: engine.Fold(m.Label), replace: engine.Fold(head(m.Replace, 200))}
-		if s, ok := matchScore(q, f); ok {
-			found = append(found, scored{i, s, recent[keys[i]]})
-		}
-	}
-	slices.SortFunc(found, func(x, y scored) int {
-		if x.score != y.score {
-			return y.score - x.score
-		}
-		if !x.used.Equal(y.used) {
-			return y.used.Compare(x.used)
-		}
-		return strings.Compare(keys[x.i], keys[y.i])
-	})
+	var x index
+	x.update(a)
 	out := []map[string]any{}
-	for _, f := range found[:min(limit, len(found))] {
-		out = append(out, a.matchOut(a.store.Matches[f.i]))
+	for _, f := range x.rank(search.Parse(query), scopeMatches, nil, nil, a.history.MatchUses(), time.Now()) {
+		if len(out) == limit {
+			break
+		}
+		out = append(out, a.matchOut(x.result(f.i).m))
 	}
 	return out
 }
@@ -639,6 +646,7 @@ func (a *app) ctlInsights() map[string]any {
 		"expansions": m.Total, "today": m.Daily[6], "active_days": m.ActiveDays(),
 		"characters_saved": m.Saved, "time_saved": typingTime(m.Saved), "from_palette": m.Palette,
 		"daily": daily, "matches": counts(m.Triggers), "apps": counts(m.Apps), "unused": unused,
+		"agents": counts(agentCounts(m.Agents)),
 	}
 }
 
@@ -748,4 +756,132 @@ func noticeOr(n string) string {
 		return "the sign-in didn't finish"
 	}
 	return n
+}
+
+// entryID names a prompt of the history for the sokki command: the start
+// of a hash of its text, the same across launches.
+func entryID(e history.Entry) string {
+	sum := sha1.Sum([]byte(history.Normalize(e.Text)))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
+func (a *app) entryOut(e history.Entry) map[string]any {
+	agents := make([]string, len(e.Sources))
+	for i, s := range e.Sources {
+		agents[i] = history.SourceName(s)
+	}
+	out := map[string]any{
+		"id": entryID(e), "title": e.Title(), "text": e.Text, "agents": agents,
+		"sent": e.Count, "from_sokki": e.Recalls,
+		"first": time.Unix(e.First, 0).Format(time.RFC3339), "last": time.Unix(e.Last, 0).Format(time.RFC3339),
+	}
+	if len(e.Projects) > 0 {
+		out["projects"] = e.Projects
+	}
+	return out
+}
+
+// findEntry finds the prompt of the history whose ID starts with id, the
+// hidden ones too.
+func (a *app) findEntry(id string, hidden bool) (history.Entry, error) {
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" {
+		return history.Entry{}, errors.New("missing the prompt's id: see sokki history search")
+	}
+	var found []history.Entry
+	for _, e := range a.history.All() {
+		if (hidden || !e.Hidden) && strings.HasPrefix(entryID(e), id) {
+			found = append(found, e)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return history.Entry{}, fmt.Errorf("no prompt of the history has the id %q", id)
+	case 1:
+		return found[0], nil
+	}
+	return history.Entry{}, fmt.Errorf("%d prompts have an id starting %q: give more of it", len(found), id)
+}
+
+// ctlHistorySearch ranks the history for query as the palette does.
+func (a *app) ctlHistorySearch(query string, limit int) []map[string]any {
+	var x index
+	x.update(a)
+	out := []map[string]any{}
+	for _, f := range x.rank(search.Parse(query), scopeHistory, nil, nil, nil, time.Now()) {
+		if len(out) == limit {
+			break
+		}
+		out = append(out, a.entryOut(x.result(f.i).e))
+	}
+	return out
+}
+
+func (a *app) ctlHistoryEntry(cmd, id string) (any, error) {
+	e, err := a.findEntry(id, cmd == "history.unhide")
+	if err != nil {
+		return nil, err
+	}
+	switch cmd {
+	case "history.copy":
+		copyText(e.Text)
+		a.history.Recall(e.ID, "")
+		return map[string]any{"copied": e.Title(), "text": e.Text}, nil
+	case "history.hide":
+		a.history.Hide(e.ID)
+	case "history.unhide":
+		a.history.Unhide(e.ID)
+	}
+	if cmd != "history.show" {
+		a.palette.invalidate()
+		a.settings.invalidate()
+		e, _ = a.history.Entry(e.ID)
+		out := a.entryOut(e)
+		out["hidden"] = e.Hidden
+		return out, nil
+	}
+	return a.entryOut(e), nil
+}
+
+func (a *app) ctlHistorySources() map[string]any {
+	st := a.history.Settings()
+	counts := a.history.Counts()
+	var sources []map[string]any
+	for _, src := range history.Sources {
+		sources = append(sources, map[string]any{
+			"id": src.ID, "name": src.Name, "on": st.On(src.ID), "prompts": counts[src.ID], "reads": src.Where,
+		})
+	}
+	out := map[string]any{"sources": sources, "prompts": len(a.history.Entries())}
+	if t := a.history.Imported(); !t.IsZero() {
+		out["read"] = t.Format(time.RFC3339)
+	}
+	return out
+}
+
+func (a *app) ctlHistorySource(id string, on bool) (any, error) {
+	if !slices.ContainsFunc(history.Sources, func(s history.Source) bool { return s.ID == id }) {
+		ids := make([]string, len(history.Sources))
+		for i, s := range history.Sources {
+			ids[i] = s.ID
+		}
+		return nil, fmt.Errorf("unknown agent %q: one of %s", id, strings.Join(ids, ", "))
+	}
+	a.setSource(id, on)
+	return a.ctlHistorySources(), nil
+}
+
+// setSource turns the reading of the source of id on or off.
+func (a *app) setSource(id string, on bool) {
+	st := a.history.Settings()
+	st.Off = slices.DeleteFunc(st.Off, func(s string) bool { return s == id })
+	if !on {
+		st.Off = append(st.Off, id)
+	}
+	a.history.SetSettings(st)
+	if on {
+		a.scanHistory()
+	}
+	a.palette.invalidate()
+	a.settings.invalidate()
 }

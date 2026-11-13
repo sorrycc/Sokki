@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
+## Unreleased
+
+- The palette finds the prompts you sent in Claude Code, Codex, Gemini, Qoder, Grok, opencode and Aider.
+- One prompt sent in several agents shows once, with the agents it went to and how often.
+- Palette results rank by how often and how lately you used them, matches as well as prompts.
+- Search finds every word you type anywhere in a prompt, Chinese and Japanese included.
+- `@codex` in the search keeps prompts sent in an agent, and `#project` those sent in a project.
+- The palette has an **All · Matches · History** bar, also on `⌘1`, `⌘2` and `⌘3`.
+- `↵` inserts a prompt for you to change, and `⌥↵` inserts it and presses Return to send it.
+- `⇥` in the palette edits the chosen text before inserting it.
+- `⌘S` saves a history prompt as a prompt of your own, and `⌘⌫` hides it, with `⌘Z` to undo.
+- Text with line breaks inserted from the palette is pasted, so an agent doesn't send it early.
+- **Settings → Agent History** turns each agent on or off and sets which prompts to leave out.
+- Short prompts, slash commands, tool messages and prompts with keys or tokens are left out.
+- The agents' history stays on this Mac: it is never synced or sent.
+- Insights counts the history prompts you inserted by agent.
+- **Agent History** in the menu bar menu reads the agents now or opens its settings.
+- `sokki history` searches, shows, copies and hides history prompts, and switches agents.
+
 ## 0.3.0
 
 - A new `sokki` command does from the terminal what Sokki's windows and menu do, while Sokki runs.

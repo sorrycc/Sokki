@@ -3,6 +3,7 @@
 package expander
 
 import (
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
@@ -37,6 +38,33 @@ func (in *Injector) Inject(replacement string, triggerLength int) {
 		return
 	}
 	in.paste(replacement, cfg)
+}
+
+// sendDelay is how long the app has to take a paste before Return sends
+// it.
+const sendDelay = 150 * time.Millisecond
+
+// Insert puts text where the caret is: typed when it is short and on one
+// line, else pasted, since a line break typed is a Return, which sends a
+// prompt in an agent before it is whole. With send, Return follows.
+func (in *Injector) Insert(text string, send bool) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	cfg := in.cfg()
+	if !strings.ContainsAny(text, "\r\n") && utf8.RuneCountInString(text) <= cfg.ClipboardThreshold {
+		for _, r := range text {
+			macos.PostText(string(r))
+			if cfg.InjectDelay > 0 {
+				sleepMs(cfg.InjectDelay)
+			}
+		}
+	} else {
+		in.paste(text, cfg)
+	}
+	if send {
+		time.Sleep(sendDelay)
+		macos.TapKey(macos.KeyReturn, 0)
+	}
 }
 
 // Erase posts count backspaces.

@@ -56,6 +56,13 @@ func TestBuildsRequests(t *testing.T) {
 		{[]string{"insights", "clear"}, "", "insights.clear", map[string]any{}},
 		{[]string{"activity", "--reveal"}, "", "activity", map[string]any{"reveal": true}},
 		{[]string{"signin", "--wait"}, "", "signin", map[string]any{"wait": true}},
+		{[]string{"history"}, "", "history.search", map[string]any{"query": ""}},
+		{[]string{"history", "review", "@codex", "--limit", "5"}, "", "history.search", map[string]any{"query": "review @codex", "limit": float64(5)}},
+		{[]string{"history", "search", "review"}, "", "history.search", map[string]any{"query": "review"}},
+		{[]string{"history", "copy", "1a2b"}, "", "history.copy", map[string]any{"id": "1a2b"}},
+		{[]string{"history", "off", "grok"}, "", "history.source", map[string]any{"source": "grok", "on": false}},
+		{[]string{"history", "import"}, "", "history.import", map[string]any{}},
+		{[]string{"history", "clear", "--reimport"}, "", "history.clear", map[string]any{"reimport": true}},
 	}
 	for _, c := range cases {
 		got, code, _, errOut := run(t, c.stdin, map[string]any{}, c.args...)

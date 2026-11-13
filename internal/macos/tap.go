@@ -48,6 +48,7 @@ func (f Flags) Has(m Flags) bool { return f&m == m }
 // Virtual key codes Sokki reads or sends (ANSI layout).
 const (
 	KeyC         uint16 = 0x08
+	KeyReturn    uint16 = 0x24
 	KeyV         uint16 = 0x09
 	KeySpace     uint16 = 0x31
 	KeyBackspace uint16 = 0x33

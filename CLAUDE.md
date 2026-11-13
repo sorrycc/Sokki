@@ -7,7 +7,8 @@ no cgo: macOS APIs MyGo lacks are called through purego. arm64 only.
 
 - `cmd/sokki/` — the app (package main): `main.go` startup + wiring, `tray.go` menu bar item, `settings.go` +
   `matches.go` Settings, `account.go` sign-in and settings sync, `editor.go` match editor, `palette.go` palette
-  panel (`palette_search.go` its ranking, `palette_add.go` its New Prompt form and capture), `hud.go` Recent Activity panel, `insights.go` Insights page, `style.go` shared look (icons from `icons/`, keycaps, setting cards), `app_test.go` headless UI tests
+  panel (`palette_search.go` its ranking, `palette_add.go` its New Prompt form and capture, `palette_recall.go`
+  agent history rows and editing before inserting), `history_page.go` Settings → Agent History, `hud.go` Recent Activity panel, `insights.go` Insights page, `style.go` shared look (icons from `icons/`, keycaps, setting cards), `app_test.go` headless UI tests
   (`SOKKI_SHOTS=dir go test ./cmd/sokki` saves screenshots), `control.go` the sokki command's side in the app,
   `command.go` installing it
 - `cmd/sokki-cli/` — the sokki command on its own; the app's binary runs it as `Sokki cli`
@@ -19,6 +20,8 @@ no cgo: macOS APIs MyGo lacks are called through purego. arm64 only.
 - `internal/mon/` — client of Mon (mon.sorrycc.dev), a copy of Mayoi's; `internal/cloudsync/` — merges the config and
   matches with the account
 - `internal/usage/` — the 7-day log of expansions (`usage.json`) behind Insights
+- `internal/history/` — prompts read from the agents' own history files (`sources.go`), de-duplicated and counted
+  in `history.json` of the data folder, and the uses of matches; `internal/search/` — the palette's word search
 - `internal/model/`, `internal/config/`, `internal/prefs/`, `internal/telemetry/`, `internal/logx/`
 - `docs/designs/` — dated design specs (`YYYY-MM-DD-<slug>.md`); start with `2026-10-16-mygo-rewrite.md`
 - `resources/` — bundled into the app (`icon.png`; CI writes the gitignored `telemetry.json`)

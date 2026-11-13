@@ -13,6 +13,7 @@ import (
 	"sokki/internal/logx"
 	"sokki/internal/macos"
 	"sokki/internal/model"
+	"sokki/internal/search"
 )
 
 const paletteWidth, paletteHeight = 760, 460
@@ -29,9 +30,11 @@ const (
 	modeSearch paletteMode = iota // the matches, to find one and insert it
 	modeAdd                       // the New Prompt form (palette_add.go)
 	modeSaved                     // what the capture shortcut saved, briefly
+	modeEdit                      // the chosen text, to edit before inserting (palette_recall.go)
 )
 
-// palette is the Spotlight-style finder of matches: a panel over every
+// palette is the Spotlight-style finder of matches and of the prompts
+// sent to agents (palette_recall.go): a panel over every
 // app that takes the keyboard without taking the front from the app the
 // user is in, which keeps its focus for the injection and its selection
 // for a new prompt.
@@ -43,15 +46,18 @@ type palette struct {
 	input ui.Handle
 	list  ui.ListState
 
-	results []model.Match
+	// scope is what the palette searches: scopeAll, scopeMatches or
+	// scopeHistory.
+	scope   int
+	results []result
 	found   []scored // what the last filter found, for the next to narrow
 	spare   []scored // reused by filter
 	chosen  int
-	// folded is the store's matches folded for the search, as of the
-	// store's generation foldedGen.
-	folded    []folded
-	foldedGen uint64
-	q         []rune // the query, folded, as of the last filter
+	// index is the matches and the history as the search compares them.
+	index index
+	// q is the query as of the last filter, in the scope qScope.
+	q      search.Query
+	qScope int
 	// rowMarks are where q matches the rows shown, by match, made as
 	// they show and dropped at each filter.
 	rowMarks  map[int64]rowMarks
@@ -69,6 +75,11 @@ type palette struct {
 	flash flash
 
 	add promptForm
+	// edit is the text of modeEdit.
+	edit editForm
+	// hidden is the history entry ⌘⌫ hid last, which ⌘Z shows again
+	// while the footer says so.
+	hidden int64
 	// captured is what the capture shortcut did, for modeSaved.
 	captured capture
 	// selectedText reads the selection in the app in front:
@@ -99,7 +110,12 @@ func newPalette(a *app) *palette { return &palette{a: a, selectedText: macos.Sel
 
 func (p *palette) invalidate() {
 	if p != nil && p.win != nil && p.win.IsVisible() {
+		// The choice stays where it was, the list changing under it.
+		r, ok := p.selected()
 		p.filter()
+		if ok {
+			p.chooseID(r.id())
+		}
 		p.win.Invalidate()
 	}
 }
@@ -147,6 +163,7 @@ func (p *palette) show() {
 	p.filter()
 	p.input.Focus()
 	p.win.Show()
+	p.a.scanHistory() // what was sent since, which comes in as it is read
 	logx.Debugf("[Palette] show results=%d", len(p.results))
 }
 
@@ -166,20 +183,31 @@ func (p *palette) hide() {
 	}
 }
 
-// commit types the match into the app the user was in.
-func (p *palette) commit(m model.Match) {
+// commit puts the match or the prompt into the app the user was in,
+// and with send presses Return after it, which sends it to an agent.
+func (p *palette) commit(r result, send bool) {
 	p.hide()
-	p.a.exp.InjectFromPalette(m)
-	p.a.recency.Bump(m.Key())
+	if r.entry {
+		p.a.recall(r.e, r.e.Text, send)
+		return
+	}
+	p.a.exp.InjectFromPalette(r.m, send)
+	p.a.used(r.m)
 }
 
-// copy puts the match on the clipboard, its variables filled in, to
-// paste it elsewhere, and says so briefly without the keyboard.
-func (p *palette) copy(m model.Match) {
+// copy puts the match on the clipboard, its variables filled in, or the
+// prompt, to paste it elsewhere, and says so briefly without the
+// keyboard.
+func (p *palette) copy(r result) {
 	p.hide()
-	copyText(engine.Render(m.Replace, func() string { return p.clipboard }, time.Now()))
-	p.a.recency.Bump(m.Key())
-	p.captured = capture{gen: p.captured.gen + 1, copied: matchTitle(m)}
+	if r.entry {
+		copyText(r.e.Text)
+		p.a.history.Recall(r.e.ID, "")
+	} else {
+		copyText(engine.Render(r.m.Replace, func() string { return p.clipboard }, time.Now()))
+		p.a.used(r.m)
+	}
+	p.captured = capture{gen: p.captured.gen + 1, copied: r.title()}
 	p.notify(copiedFor)
 }
 
@@ -209,6 +237,8 @@ func (p *palette) view(c *ui.Context) {
 		if c.Shortcut(0, ui.KeyEscape) {
 			p.hide()
 		}
+	case modeEdit:
+		p.editKeys(c)
 	default:
 		p.searchKeys(c)
 	}
@@ -224,6 +254,8 @@ func (p *palette) view(c *ui.Context) {
 		case modeSaved:
 			p.keep(content.Hovered())
 			content.Children(func() { p.savedView(c) })
+		case modeEdit:
+			content.Children(func() { p.editView(c) })
 		default:
 			content.Children(func() { p.searchView(c) })
 		}
@@ -242,22 +274,53 @@ func (p *palette) searchKeys(c *ui.Context) {
 	if c.Shortcut(0, ui.KeyUp) {
 		p.choose(p.chosen - 1)
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyEnter) {
-		if m, ok := p.selected(); ok {
-			p.openEditor(m)
+	r, ok := p.selected()
+	switch {
+	case c.Shortcut(ui.Cmd, ui.KeyEnter):
+		if ok && !r.entry {
+			p.openEditor(r.m)
+		} else if ok {
+			p.saveEntry(r.e)
 		}
-	} else if c.Shortcut(0, ui.KeyEnter) {
-		if m, ok := p.selected(); ok {
-			p.commit(m)
+	case c.Shortcut(ui.Alt, ui.KeyEnter):
+		if ok {
+			p.commit(r, true)
+		}
+	case c.Shortcut(0, ui.KeyEnter):
+		if ok {
+			p.commit(r, false)
 		}
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyC) {
-		if m, ok := p.selected(); ok {
-			p.copy(m)
+	if ok && c.Shortcut(0, ui.KeyTab) {
+		p.startEdit(r)
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyC) && ok {
+		p.copy(r)
+	}
+	if ok && r.entry {
+		if c.Shortcut(ui.Cmd, ui.KeyS) {
+			p.saveEntry(r.e)
 		}
+		if c.Shortcut(ui.Cmd, ui.KeyBackspace) {
+			p.hideEntry(c, r.e)
+		}
+	}
+	if f, ok := p.flashing(c); ok && f.id == p.hidden && p.hidden != 0 && c.Shortcut(ui.Cmd, ui.KeyZ) {
+		p.unhideEntry()
+	}
+	for i := range scopeLabels {
+		c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { p.setScope(i) })
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyComma, p.openSettings)
 	c.OnShortcut(ui.Cmd, ui.KeyN, p.quickAdd)
+}
+
+// setScope searches matches, history or both.
+func (p *palette) setScope(scope int) {
+	p.scope = scope
+	p.list = ui.ListState{}
+	p.filter()
+	p.input.Focus()
 }
 
 func (p *palette) searchView(c *ui.Context) {
@@ -265,11 +328,15 @@ func (p *palette) searchView(c *ui.Context) {
 	ui.Row(c).Padding(14, 18).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Icon(c, iconSearch).FontSize(19).TextColor(t.TextMuted)
 		if ui.TextInputBase(c, &p.query).Bind(&p.input).Grow(1).FontSize(19).
-			Placeholder("Search matches and prompts").Label("Search matches and prompts").Changed() {
+			Placeholder(searchHelp(p.scope)).Label("Search").Changed() {
 			p.filter()
 		}
 		if p.query != "" {
 			caption(c, plural(len(p.results), "result", "results")).FontFeatures("tnum").SingleLine()
+		}
+		scope := p.scope
+		if ui.Segmented(c, &scope, scopeLabels...).Label("Search in").Changed() {
+			p.setScope(scope)
 		}
 	})
 	ui.Divider(c)
@@ -277,8 +344,8 @@ func (p *palette) searchView(c *ui.Context) {
 		ui.Column(c).Grow(1).Children(func() { p.empty(c) })
 	} else {
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
-			p.list.Key = func(i int) any { return p.results[i].ID }
-			p.list.Label = func(i int) string { return p.results[i].Title() }
+			p.list.Key = func(i int) any { return p.results[i].id() }
+			p.list.Label = func(i int) string { return p.results[i].title() }
 			ui.List(c, &p.list, len(p.results), func(i int) { p.row(c, i) }).Width(300).Padding(6).Gap(1)
 			ui.Divider(c).Vertical().Background(t.Border.Alpha(0.6))
 			ui.Column(c).Grow(1).Shrink(1).Children(func() { p.preview(c) })
@@ -286,12 +353,20 @@ func (p *palette) searchView(c *ui.Context) {
 	}
 	ui.Divider(c)
 	p.footer(c, func() {
-		if _, ok := p.selected(); ok {
+		if r, ok := p.selected(); ok {
 			hint(c, "↵", "Insert")
-			hint(c, "⌘C", "Copy")
-			hint(c, "⌘↵", "Edit")
+			hint(c, "⌥↵", "Send")
+			hint(c, "⇥", "Edit")
+			if r.entry {
+				hint(c, "⌘S", "Save as Prompt")
+				hint(c, "⌘⌫", "Hide")
+			} else {
+				hint(c, "⌘C", "Copy")
+				hint(c, "⌘↵", "Open")
+			}
+		} else {
+			hint(c, "⌘N", "New Prompt")
 		}
-		hint(c, "⌘N", "New Prompt")
 		hint(c, "esc", "Close")
 	})
 }
@@ -319,7 +394,14 @@ func (p *palette) footer(c *ui.Context, hints func()) {
 }
 
 func (p *palette) empty(c *ui.Context) {
-	if len(p.a.store.Matches) == 0 {
+	if p.scope == scopeHistory && p.q.Empty() {
+		emptyState(c, iconHistory, "No Agent History",
+			"Prompts you send in Claude Code, Codex, Gemini and other agents show here, to find and send again anywhere.", func() {
+				ui.Button(c, "History Settings…").OnClick(func() { p.hide(); p.a.settings.showPage(historyPage) })
+			})
+		return
+	}
+	if len(p.a.store.Matches) == 0 && p.scope != scopeHistory && p.q.Empty() {
 		emptyState(c, iconPrompt, "No Prompts Yet",
 			"Save text you reuse as a prompt, then find it here and insert it into any app.", func() {
 				ui.PrimaryButton(c, "New Prompt").OnClick(p.quickAdd)
@@ -327,14 +409,19 @@ func (p *palette) empty(c *ui.Context) {
 			})
 		return
 	}
-	emptyState(c, iconSearch, "No Results", fmt.Sprintf("Nothing matches “%s”.", strings.TrimSpace(p.query)), func() {
+	emptyState(c, iconSearch, "No Results", fmt.Sprintf("Nothing matches “%s”%s.", strings.TrimSpace(p.query), scopeNote(p.scope)), func() {
 		ui.Button(c, "Save as a New Prompt").OnClick(p.quickAdd)
 		kbd(c, "⌘N")
 	})
 }
 
 func (p *palette) row(c *ui.Context, i int) {
-	m := p.results[i]
+	r := p.results[i]
+	if r.entry {
+		p.entryRow(c, i)
+		return
+	}
+	m := r.m
 	t := c.Theme()
 	chosen := i == p.chosen
 	text, mutedColor := rowColors(t, chosen)
@@ -342,20 +429,10 @@ func (p *palette) row(c *ui.Context, i int) {
 	rowFill(c, row, chosen)
 	row.Children(func() {
 		title := matchTitle(m)
-		marks := p.rowMarksOf(m, title)
+		marks := p.rowMarksOf(r, title)
 		titleMarks, triggerMarks := marks.title, marks.trigger
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-			var e ui.Element
-			if titleMarks != nil {
-				mark := ui.Span{Weight: 700}
-				if !chosen {
-					mark.Color = t.Accent
-				}
-				e = ui.RichText(c, marked(title, titleMarks, mark)...)
-			} else {
-				e = titleText(c, title, chosen)
-			}
-			e.TextColor(text).SingleLine().Ellipsis("…")
+			titleMarked(c, title, titleMarks, chosen).TextColor(text).SingleLine().Ellipsis("…")
 			if m.Label != "" {
 				ui.Text(c, firstLine(m.Replace)).FontSize(11).TextColor(mutedColor).SingleLine().Ellipsis("…")
 			}
@@ -366,16 +443,33 @@ func (p *palette) row(c *ui.Context, i int) {
 		triggerCap(c, m, chosen, triggerMarks).Shrink(0).MaxWidth(110).Ellipsis("…")
 	})
 	if row.Clicked() {
-		p.commit(m)
+		p.commit(r, false)
 	}
+}
+
+// titleMarked is a row's title, where the query matched it in bold.
+func titleMarked(c *ui.Context, title string, marks []int, chosen bool) ui.Element {
+	if marks == nil {
+		return titleText(c, title, chosen)
+	}
+	mark := ui.Span{Weight: 700}
+	if !chosen {
+		mark.Color = c.Theme().Accent
+	}
+	return ui.RichText(c, marked(title, marks, mark)...)
 }
 
 func (p *palette) preview(c *ui.Context) {
 	t := c.Theme()
-	m, ok := p.selected()
+	r, ok := p.selected()
 	if !ok {
 		return
 	}
+	if r.entry {
+		p.entryPreview(c, r.e)
+		return
+	}
+	m := r.m
 	if p.previewID != m.ID || p.previewOf != m.Replace {
 		p.previewID, p.previewOf = m.ID, m.Replace
 		p.previewText = engine.RenderPreview(m.Replace, p.clipboard, time.Now())
@@ -404,6 +498,10 @@ func (p *palette) preview(c *ui.Context) {
 				caption(c, "Variables filled in as of now").SingleLine().Ellipsis("…").Shrink(1)
 			}
 			ui.Spacer(c)
+			if n := p.a.history.MatchUses()[m.Key()].Count; n > 1 {
+				caption(c, plural(n, "use", "uses")).FontFeatures("tnum").SingleLine()
+				caption(c, "·")
+			}
 			if at, ok := p.a.recency.Last(m.Key()); ok {
 				caption(c, "Used "+ago(at, time.Now())).SingleLine()
 			}
