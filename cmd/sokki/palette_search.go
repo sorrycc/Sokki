@@ -70,7 +70,24 @@ type index struct {
 	docs                 []search.Doc
 	matches              []model.Match
 	entries              []history.Entry
+	// matchDocs are the docs of the matches, and matchKeys their texts
+	// normalized, made again only as the matches change.
+	matchDocs []search.Doc
+	matchKeys []string
+	// entryDocs are the docs of the entries by ID, kept from one making
+	// to the next: an entry's text never changes, and lowering every
+	// long prompt again at each recall or scan would hold up the keys.
+	entryDocs map[int64]search.Doc
+	// frecency and last are each doc's, as of at: worked out as the docs
+	// are made, and again once a minute, not at every key.
+	frecency []float64
+	last     []int64
+	at       time.Time
 }
+
+// frecencyFor is how long the frecency the index worked out stays: its
+// weights change by days.
+const frecencyFor = time.Minute
 
 func (x *index) result(i int) result {
 	if i < len(x.matches) {
@@ -86,61 +103,86 @@ func (x *index) update(a *app) bool {
 	if x.docs != nil && x.matchGen == a.store.Gen && x.historyGen == hgen && len(x.matches) == len(a.store.Matches) {
 		return false
 	}
+	if x.matchDocs == nil || x.matchGen != a.store.Gen || len(x.matches) != len(a.store.Matches) {
+		x.matches = a.store.Matches
+		x.matchDocs, x.matchKeys = make([]search.Doc, len(x.matches)), make([]string, len(x.matches))
+		for i, m := range x.matches {
+			x.matchDocs[i] = search.NewDoc(m.Trigger, m.Label, m.Replace, []string{"sokki", m.SourceFile}, nil)
+			x.matchKeys[i] = history.Normalize(m.Replace)
+		}
+	}
 	x.matchGen, x.historyGen = a.store.Gen, hgen
-	x.matches = a.store.Matches
-	x.docs = x.docs[:0]
-	saved := make(map[string]bool, len(x.matches))
-	for _, m := range x.matches {
-		x.docs = append(x.docs, search.NewDoc(m.Trigger, m.Label, m.Replace, []string{"sokki", m.SourceFile}, nil))
-		saved[history.Normalize(m.Replace)] = true
+	x.docs = append(x.docs[:0], x.matchDocs...)
+	saved := make(map[int64]bool)
+	for _, key := range x.matchKeys {
+		if id, ok := a.history.Find(key); ok {
+			saved[id] = true
+		}
 	}
 	// A prompt saved as a match shows once, as the match.
-	x.entries = slices.DeleteFunc(slices.Clone(a.history.Entries()), func(e history.Entry) bool {
-		return saved[history.Normalize(e.Text)]
-	})
+	x.entries = slices.DeleteFunc(slices.Clone(a.history.Entries()), func(e history.Entry) bool { return saved[e.ID] })
+	was := x.entryDocs
+	x.entryDocs = make(map[int64]search.Doc, len(x.entries))
 	for _, e := range x.entries {
 		agents := slices.Clone(e.Sources)
 		for _, s := range e.Sources {
 			agents = append(agents, history.SourceName(s))
 		}
-		x.docs = append(x.docs, search.NewDoc("", e.Title(), e.Text, agents, e.Projects))
+		d, ok := was[e.ID]
+		if ok {
+			d = d.With(agents, e.Projects)
+		} else {
+			d = search.NewDoc("", e.Title(), e.Text, agents, e.Projects)
+		}
+		x.entryDocs[e.ID] = d
+		x.docs = append(x.docs, d)
 	}
+	x.weigh(a.history.MatchUses(), time.Now())
 	return true
+}
+
+// weigh works out the frecency of each doc as of now.
+func (x *index) weigh(uses map[string]history.MatchUse, now time.Time) {
+	x.at = now
+	x.frecency, x.last = x.frecency[:0], x.last[:0]
+	for i := range x.docs {
+		var count int
+		var times []int64
+		if i < len(x.matches) {
+			u := uses[x.matches[i].Key()]
+			count, times = u.Count, u.Times
+		} else {
+			e := &x.entries[i-len(x.matches)]
+			count, times = e.Count, e.UseTimes()
+		}
+		var last int64
+		if len(times) > 0 {
+			last = times[len(times)-1]
+		}
+		x.frecency = append(x.frecency, history.Frecency(count, times, now))
+		x.last = append(x.last, last)
+	}
 }
 
 // rank ranks the docs of x for q among those of scope, each of try's
 // indexes (all, for nil), into found: by how well they fit q plus how
 // often and lately they were used, or, for an empty query, by the
 // latter alone.
-func (x *index) rank(q search.Query, scope int, try []scored, found []scored, uses map[string]history.MatchUse, now time.Time) []scored {
+func (x *index) rank(q search.Query, scope int, try []scored, found []scored) []scored {
 	add := func(i int) {
 		isEntry := i >= len(x.matches)
 		if (scope == scopeMatches && isEntry) || (scope == scopeHistory && !isEntry) {
 			return
 		}
-		var count int
-		var times []int64
-		if isEntry {
-			e := &x.entries[i-len(x.matches)]
-			count, times = e.Count, e.UseTimes()
-		} else {
-			m := &x.matches[i]
-			if !m.Enabled {
-				return
-			}
-			u := uses[m.Key()]
-			count, times = u.Count, u.Times
+		if !isEntry && !x.matches[i].Enabled {
+			return
 		}
 		s, ok := q.Score(&x.docs[i])
 		if !ok {
 			return
 		}
-		f := history.Frecency(count, times, now)
-		var last int64
-		if len(times) > 0 {
-			last = times[len(times)-1]
-		}
-		found = append(found, scored{i: i, rank: 4*s + history.Boost(f), frecency: f, last: last})
+		f := x.frecency[i]
+		found = append(found, scored{i: i, rank: 4*s + history.Boost(f), frecency: f, last: x.last[i]})
 	}
 	if try != nil {
 		for _, s := range try {
@@ -172,6 +214,10 @@ func (x *index) rank(q search.Query, scope int, try []scored, found []scored, us
 // none other can match it.
 func (p *palette) filter() {
 	stale := p.index.update(p.a)
+	if now := time.Now(); now.Sub(p.index.at) > frecencyFor {
+		p.index.weigh(p.a.history.MatchUses(), now)
+		stale = true
+	}
 	q := search.Parse(p.query)
 	narrow := !stale && p.scope == p.qScope && q.Narrows(p.q)
 	p.q, p.qScope = q, p.scope
@@ -180,7 +226,7 @@ func (p *palette) filter() {
 	if narrow {
 		try = p.found
 	}
-	found := p.index.rank(q, p.scope, try, p.spare[:0], p.a.history.MatchUses(), time.Now())
+	found := p.index.rank(q, p.scope, try, p.spare[:0])
 	p.found, p.spare = found, p.found
 	p.results = p.results[:0]
 	for _, f := range found {

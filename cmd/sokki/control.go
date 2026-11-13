@@ -463,7 +463,7 @@ func (a *app) ctlSearch(query string, limit int) []map[string]any {
 	var x index
 	x.update(a)
 	out := []map[string]any{}
-	for _, f := range x.rank(search.Parse(query), scopeMatches, nil, nil, a.history.MatchUses(), time.Now()) {
+	for _, f := range x.rank(search.Parse(query), scopeMatches, nil, nil) {
 		if len(out) == limit {
 			break
 		}
@@ -808,7 +808,7 @@ func (a *app) ctlHistorySearch(query string, limit int) []map[string]any {
 	var x index
 	x.update(a)
 	out := []map[string]any{}
-	for _, f := range x.rank(search.Parse(query), scopeHistory, nil, nil, nil, time.Now()) {
+	for _, f := range x.rank(search.Parse(query), scopeHistory, nil, nil) {
 		if len(out) == limit {
 			break
 		}

@@ -24,6 +24,12 @@ The update window shows the section of the version it offers: every release need
 - Insights counts the history prompts you inserted by agent.
 - **Agent History** in the menu bar menu reads the agents now or opens its settings.
 - `sokki history` searches, shows, copies and hides history prompts, and switches agents.
+- Each agent has a color dot in palette rows, the preview and **Settings → Agent History**.
+- The preview of a history prompt lists every agent it was sent in, and when it was first sent.
+- Prompts read while the palette is open fade into the list, and the chosen row stays chosen.
+- Text edited with `⇥` is marked **Edited**, with **Revert** to start over.
+- **Settings → Agent History** sums up the prompts by agent and shows when it is reading them.
+- The palette stays quick over a large history as new prompts come in or you insert one.
 
 ## 0.3.0
 

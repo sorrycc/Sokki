@@ -32,7 +32,8 @@ such file: Accessibility capture of their input fields is left for later.
 Scans run off the main thread (`app.scanHistory`, one at a time): at
 launch, every 2 minutes, as the palette shows, from **Read Now**, the menu
 and `sokki history import`. New prompts re-filter the palette, its choice
-kept.
+kept, and fade into its list. A scan that found nothing does not write
+`history.json`.
 
 ## Library
 
@@ -89,17 +90,27 @@ A query that adds to the last one still searches only what that one found
 (`Query.Narrows`), and the rune mask still skips most docs at the first
 key. A prompt saved as a match shows once, as the match.
 
+The palette's index keeps what a change does not touch: the docs of the
+matches until they change, an entry's doc (its lowered text) for as long
+as the entry lives, only its agents and projects made again, and the
+frecency of each doc, worked out as the index is made and again once a
+minute rather than at each key. The store normalizes every text only when
+entries go (settings, clearing); a recall, a hide or a scan adds to its
+index. A change of 5,000 long prompts and 2,000 matches takes about 1 ms
+of the main thread, from 12.
+
 ## Palette
 
 - **Scopes**: All · Matches · History (`⌘1`–`⌘3`), a segmented control
   beside the search.
-- **Rows** of the history show the agent where a match shows its trigger
-  ("Claude Code +1"), and under the title the project, the count and when
+- **Rows** of the history show the agent, after its color dot, where a
+  match shows its trigger ("Claude Code +1"), and under the title the project, the count and when
   it was last sent; the preview has the whole text, the agents and the
-  project, and how often it was sent and recalled.
+  project, and how often it was sent and recalled, and since when.
 - **Keys**: `↵` inserts without sending, so the prompt can be changed in
   the agent; `⌥↵` inserts and presses Return; `⇥` edits it in the palette
-  first (`⌘↵` inserts, `⌥⌘↵` inserts and sends, the original kept);
+  first (`⌘↵` inserts, `⌥⌘↵` inserts and sends, the original kept,
+  marked **Edited** once changed, with **Revert**);
   `⌘S` saves an entry as a prompt (the New Prompt form, filled); `⌘⌫`
   hides it, `⌘Z` showing it again while the footer says so.
 
@@ -110,8 +121,9 @@ prompt in an agent half-written. Return for `⌥↵` follows the paste after
 
 ## Elsewhere
 
-- **Settings → Agent History**: the agents with a switch and their counts,
-  when they were read with **Read Now**, the least length and the texts to
+- **Settings → Agent History**: a summary of the prompts and the agents
+  they came from, when they were read or that they are being read, with
+  **Read Now**; the agents with their dot, a switch and their counts; the least length and the texts to
   leave out (applied with **Apply**, not as typed), **Read Everything
   Again…** and **Clear History…**.
 - **Insights** counts insertions of history prompts by agent (`usage.Event.Agent`),

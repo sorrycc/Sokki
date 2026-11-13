@@ -80,6 +80,9 @@ type palette struct {
 	// hidden is the history entry ⌘⌫ hid last, which ⌘Z shows again
 	// while the footer says so.
 	hidden int64
+	// arrived are the history's entries that a reading brought while
+	// the palette showed, which fade in, until it shows again.
+	arrived map[int64]bool
 	// captured is what the capture shortcut did, for modeSaved.
 	captured capture
 	// selectedText reads the selection in the app in front:
@@ -110,13 +113,31 @@ func newPalette(a *app) *palette { return &palette{a: a, selectedText: macos.Sel
 
 func (p *palette) invalidate() {
 	if p != nil && p.win != nil && p.win.IsVisible() {
-		// The choice stays where it was, the list changing under it.
-		r, ok := p.selected()
-		p.filter()
-		if ok {
-			p.chooseID(r.id())
-		}
+		p.refilter()
 		p.win.Invalidate()
+	}
+}
+
+// refilter filters again after the matches or the history changed under
+// the palette: the choice stays where it was, and the prompts that came
+// in fade in.
+func (p *palette) refilter() {
+	r, ok := p.selected()
+	was := make(map[int64]bool, len(p.results))
+	for _, r := range p.results {
+		was[r.id()] = true
+	}
+	p.filter()
+	for _, r := range p.results {
+		if r.entry && !was[r.id()] {
+			if p.arrived == nil {
+				p.arrived = map[int64]bool{}
+			}
+			p.arrived[r.id()] = true
+		}
+	}
+	if ok {
+		p.chooseID(r.id())
 	}
 }
 
@@ -158,6 +179,7 @@ func (p *palette) show() {
 	p.previewID = 0
 	p.flash = flash{}
 	p.opened++
+	clear(p.arrived)
 	p.mode = modeSearch
 	p.query = ""
 	p.filter()
@@ -498,7 +520,7 @@ func (p *palette) preview(c *ui.Context) {
 				caption(c, "Variables filled in as of now").SingleLine().Ellipsis("…").Shrink(1)
 			}
 			ui.Spacer(c)
-			if n := p.a.history.MatchUses()[m.Key()].Count; n > 1 {
+			if n := p.a.history.MatchUse(m.Key()).Count; n > 1 {
 				caption(c, plural(n, "use", "uses")).FontFeatures("tnum").SingleLine()
 				caption(c, "·")
 			}

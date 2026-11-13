@@ -58,31 +58,15 @@ func (s *settingsWindow) agentHistory(c *ui.Context) {
 	}
 	t := c.Theme()
 	scrollPage(c, "Agent History", "What you sent to coding agents, to find in the palette and send again in any of them.", func() {
+		s.historySummary(c)
 		counts := h.Counts()
 		group(c, "Agents", func() {
 			for i, src := range history.Sources {
-				detail := src.Where
-				if n := counts[src.ID]; n > 0 {
-					detail = plural(n, "prompt", "prompts") + " · " + detail
+				on := st.On(src.ID)
+				if agentSetting(c, src, counts[src.ID], &on, i == 0) {
+					s.a.setSource(src.ID, on)
 				}
-				setting(c, src.Name, detail, i == 0, func() {
-					on := st.On(src.ID)
-					if ui.Switch(c, &on).Label("Read " + src.Name).Changed() {
-						s.a.setSource(src.ID, on)
-					}
-				})
 			}
-		})
-		group(c, "", func() {
-			read := "Not read yet."
-			if at := h.Imported(); !at.IsZero() {
-				read = "Read " + ago(at, time.Now()) + "."
-			}
-			setting(c, plural(len(h.Entries()), "prompt", "prompts"),
-				read+" Sokki reads what is new every 2 minutes and as the palette opens.", true, func() {
-					busy := s.a.scanning.Load()
-					ui.Button(c, "Read Now").Disabled(busy).OnClick(s.a.scanHistory)
-				})
 		})
 		group(c, "Leave Out", func() {
 			setting(c, "Shorter than", "Prompts as short as “continue” or “commit” aren’t worth finding.", true, func() {
@@ -126,4 +110,77 @@ func (s *settingsWindow) agentHistory(c *ui.Context) {
 		h.Clear(true)
 		s.a.scanHistory()
 	}
+}
+
+// historySummary heads the Agent History page: how many prompts Sokki
+// has, from how many agents, and when it last read them, or that it reads
+// them now.
+func (s *settingsWindow) historySummary(c *ui.Context) {
+	h := s.a.history
+	t := c.Theme()
+	busy := s.a.scanning.Load()
+	agents := 0
+	for _, n := range h.Counts() {
+		if n > 0 {
+			agents++
+		}
+	}
+	group(c, "", func() {
+		ui.Row(c).Padding(12, 14).Gap(12).AlignItems(ui.Center).Children(func() {
+			iconPlate(c, iconHistory, t.Accent, 34)
+			ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+				title := plural(len(h.Entries()), "prompt", "prompts")
+				if agents > 1 {
+					title += " from " + plural(agents, "agent", "agents")
+				}
+				ui.Text(c, title).FontSize(14).FontWeight(600).FontFeatures("tnum").SingleLine()
+				// What it is doing, fading in as it changes.
+				c.Key(busy)
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Transition(fadeTransition).Children(func() {
+					if busy {
+						ui.Spinner(c).Size(11, 11)
+						caption(c, "Reading the agents’ history…").SingleLine()
+						return
+					}
+					read := "Not read yet."
+					if at := h.Imported(); !at.IsZero() {
+						read = "Read " + ago(at, time.Now()) + "."
+					}
+					caption(c, read+" New prompts come in every 2 minutes and as the palette opens.").SingleLine().Ellipsis("…").Shrink(1)
+				})
+			})
+			ui.Button(c, "Read Now").Disabled(busy).Shrink(0).OnClick(s.a.scanHistory)
+		})
+	})
+}
+
+// agentSetting is the row of an agent on the Agent History page: its
+// dot, dimmed when it is not read, its name and where it reads, the
+// prompts it gave, and its switch, which agentSetting reports changed.
+func agentSetting(c *ui.Context, src history.Source, n int, on *bool, first bool) bool {
+	t := c.Theme()
+	row := ui.Row(c).Padding(9, 14).Gap(12).AlignItems(ui.Center).MinHeight(44)
+	if !first {
+		row.BorderWidth(0.5, 0, 0, 0).BorderColor(t.Border.Alpha(0.6))
+	}
+	changed := false
+	row.Children(func() {
+		tint := agentTint(t, src.ID)
+		if !*on {
+			tint = t.Text.Alpha(0.2)
+		}
+		ui.Box(c).Size(8, 8).Radius(4).Background(row.AnimateColor("dot", tint, hoverAnim)).Shrink(0)
+		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+			label := ui.Text(c, src.Name)
+			if !*on {
+				label.TextColor(t.TextMuted)
+			}
+			caption(c, src.Where).Font("monospace").SingleLine().Ellipsis("…")
+		})
+		if n > 0 {
+			caption(c, plural(n, "prompt", "prompts")).FontFeatures("tnum").SingleLine().Shrink(0)
+		}
+		changed = ui.Switch(c, on).Label("Read " + src.Name).Changed()
+	})
+	return changed
 }

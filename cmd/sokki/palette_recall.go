@@ -19,6 +19,8 @@ import (
 type editForm struct {
 	of   result
 	text string
+	// orig is the text as the edit began, which Revert puts back.
+	orig string
 	in   ui.Handle
 }
 
@@ -29,7 +31,7 @@ func (p *palette) startEdit(r result) {
 	if !r.entry {
 		text = engine.Render(r.m.Replace, func() string { return p.clipboard }, time.Now())
 	}
-	p.edit = editForm{of: r, text: text}
+	p.edit = editForm{of: r, text: text, orig: text}
 	p.mode = modeEdit
 	p.edit.in.Focus()
 }
@@ -82,8 +84,30 @@ func (p *palette) editView(c *ui.Context) {
 	ui.Divider(c)
 	ui.Column(c).Grow(1).Shrink(1).Padding(14, 18).Gap(6).Children(func() {
 		ui.TextArea(c, &f.text).Bind(&f.in).Label("Text to insert").Font("monospace").Grow(1).MinHeight(120)
-		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-			caption(c, f.of.title()).SingleLine().Ellipsis("…").Shrink(1)
+		ui.Row(c).Gap(6).AlignItems(ui.Center).MinHeight(22).Children(func() {
+			// Once changed, the title gives way to saying so, with the
+			// way back.
+			edited := f.text != f.orig
+			c.Key(edited)
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(1).Transition(fadeTransition).Children(func() {
+				if !edited {
+					caption(c, f.of.title()).SingleLine().Ellipsis("…").Shrink(1)
+					return
+				}
+				ui.Text(c, "Edited").FontSize(10).FontWeight(700).TextColor(t.Accent).SingleLine().
+					Padding(1, 6).Radius(8).Background(t.Accent.Alpha(0.12)).Shrink(0)
+				revert := ui.ButtonBase(c).Label("Revert").Padding(1, 4).Radius(4).Children(func() {
+					ui.Icon(c, iconUndo).FontSize(11).TextColor(t.Accent)
+					ui.Text(c, "Revert").FontSize(11).TextColor(t.Accent).SingleLine()
+				}).Gap(3).AlignItems(ui.Center)
+				if revert.Hovered() {
+					revert.Background(t.Accent.Alpha(0.08))
+				}
+				if revert.Clicked() {
+					f.text = f.orig
+					f.in.Focus()
+				}
+			})
 			ui.Spacer(c)
 			caption(c, plural(utf8.RuneCountInString(f.text), "character", "characters")).FontFeatures("tnum").Shrink(0)
 		})
@@ -148,26 +172,62 @@ func scopeNote(scope int) string {
 	return ""
 }
 
-// agentCap is the plate of a prompt of the history where a match has
-// its trigger: the agent it was sent in, and how many more.
-func agentCap(c *ui.Context, e history.Entry, chosen bool) ui.Element {
+// agentTints tell the agents apart at a glance, in rows, the preview
+// and Settings: one hue each, read on light and dark alike.
+var agentTints = map[string]ui.Color{
+	"claude":      ui.Hex("#d97757"),
+	"codex":       ui.Hex("#7c8aa0"),
+	"gemini":      ui.Hex("#4285f4"),
+	"antigravity": ui.Hex("#8b5cf6"),
+	"qoder":       ui.Hex("#14b8a6"),
+	"grok":        ui.Hex("#ec4899"),
+	"opencode":    ui.Hex("#f59e0b"),
+	"aider":       ui.Hex("#22c55e"),
+}
+
+// agentTint is the hue of the agent of id, the muted text's for one
+// unknown.
+func agentTint(t *ui.Theme, id string) ui.Color {
+	if tint, ok := agentTints[id]; ok {
+		return tint
+	}
+	return t.TextMuted
+}
+
+// agentDot is the small round mark of an agent: in the accent's text
+// color on a chosen row, where a hue near the accent's would not read.
+func agentDot(c *ui.Context, id string, chosen bool) ui.Element {
+	tint := agentTint(c.Theme(), id)
+	if chosen {
+		tint = c.Theme().AccentText.Alpha(0.85)
+	}
+	return ui.Box(c).Size(7, 7).Radius(3.5).Background(tint).Shrink(0)
+}
+
+// agentChip is an agent by its name after its dot, on a hairline plate.
+func agentChip(c *ui.Context, id, name string, chosen bool) ui.Element {
 	t := c.Theme()
 	fg, border := t.TextMuted, t.Text.Alpha(0.14)
 	if chosen {
 		fg, border = t.AccentText.Alpha(0.85), t.AccentText.Alpha(0.3)
 	}
-	name := "Agent"
+	return ui.Row(c).Gap(5).AlignItems(ui.Center).Padding(2, 7).Radius(5).Border(0.5, border).Children(func() {
+		agentDot(c, id, chosen)
+		ui.Text(c, name).FontSize(11).TextColor(fg).SingleLine()
+	})
+}
+
+// agentCap is the plate of a prompt of the history where a match has
+// its trigger: the agent it was sent in, and how many more.
+func agentCap(c *ui.Context, e history.Entry, chosen bool) ui.Element {
+	id, name := "", "Agent"
 	if len(e.Sources) > 0 {
-		name = history.SourceName(e.Sources[0])
+		id, name = e.Sources[0], history.SourceName(e.Sources[0])
 	}
 	if len(e.Sources) > 1 {
 		name += " +" + strconv.Itoa(len(e.Sources)-1)
 	}
-	return ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(2, 7).Radius(5).Border(0.5, border).
-		Tooltip("Sent in " + agentNames(e)).Children(func() {
-		ui.Icon(c, iconHistory).FontSize(11).TextColor(fg)
-		ui.Text(c, name).FontSize(11).TextColor(fg).SingleLine()
-	})
+	return agentChip(c, id, name, chosen).Tooltip("Sent in " + agentNames(e))
 }
 
 func (p *palette) entryRow(c *ui.Context, i int) {
@@ -177,6 +237,9 @@ func (p *palette) entryRow(c *ui.Context, i int) {
 	chosen := i == p.chosen
 	text, mutedColor := rowColors(t, chosen)
 	row := ui.Row(c).Padding(7, 10).Gap(10).AlignItems(ui.Center).Radius(8)
+	if p.arrived[e.ID] {
+		row.Transition(arriveTransition)
+	}
 	rowFill(c, row, chosen)
 	row.Children(func() {
 		title := e.Title()
@@ -210,9 +273,12 @@ func (p *palette) entryPreview(c *ui.Context, e history.Entry) {
 	ui.Column(c).Fill().Children(func() {
 		ui.Column(c).Padding(16, 18, 12, 18).Gap(8).Children(func() {
 			heading(c, e.Title()).SingleLine().Ellipsis("…")
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				agentCap(c, e, false).Shrink(1).Ellipsis("…")
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				for _, src := range e.Sources {
+					agentChip(c, src, history.SourceName(src), false).Shrink(0)
+				}
 				if pr := e.Project(); pr != "" {
+					ui.Box(c).Width(2).Shrink(0)
 					ui.Icon(c, iconFile).FontSize(12).TextColor(t.TextMuted)
 					caption(c, pr).SingleLine().Ellipsis("…").Shrink(1).Tooltip(e.Projects[0])
 				}
@@ -232,7 +298,11 @@ func (p *palette) entryPreview(c *ui.Context, e history.Entry) {
 				caption(c, "· "+strconv.Itoa(e.Recalls)+" from Sokki").FontFeatures("tnum").SingleLine()
 			}
 			ui.Spacer(c)
-			caption(c, "Last sent "+ago(time.Unix(e.Last, 0), now)).SingleLine()
+			last := "Last sent " + ago(time.Unix(e.Last, 0), now)
+			if e.Count > 1 && e.Last-e.First >= 24*60*60 {
+				last += ", first " + ago(time.Unix(e.First, 0), now)
+			}
+			caption(c, last).SingleLine()
 		})
 	})
 }

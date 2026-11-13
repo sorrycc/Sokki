@@ -51,6 +51,7 @@ var (
 	iconPrompt   = svgIcon("message-square-text")
 	iconCursor   = svgIcon("text-cursor")
 	iconClip     = svgIcon("clipboard")
+	iconUndo     = svgIcon("undo-2")
 )
 
 // appIcon returns Sokki's icon, decoded the first time it shows.
@@ -96,6 +97,13 @@ var (
 	flashTransition = ui.ElementTransition{
 		Duration: 200 * time.Millisecond, Colors: true,
 		Enter: &ui.Motion{X: -8},
+	}
+	// arriveTransition is a row a reading brought into a list that
+	// shows, fading in from a little above; Size alone, so that only
+	// its coming in is animated, not where the keys move it.
+	arriveTransition = ui.ElementTransition{
+		Duration: motionGrow, Size: true,
+		Enter: &ui.Motion{Opacity: 0, Y: -6},
 	}
 	// unfoldTransition is a part opening under its title.
 	unfoldTransition = ui.ElementTransition{

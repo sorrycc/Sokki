@@ -416,6 +416,7 @@ func (a *app) scanHistory() {
 	if !a.scanning.CompareAndSwap(false, true) {
 		return
 	}
+	a.post(a.settings.invalidate) // which says it reads
 	go func() {
 		defer a.scanning.Store(false)
 		gen := a.history.Gen()

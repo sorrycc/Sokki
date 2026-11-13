@@ -96,11 +96,17 @@ const bodyChars = 4000
 func NewDoc(trigger, title, body string, agents, projects []string) Doc {
 	d := Doc{
 		trigger: strings.ToLower(trigger), title: strings.ToLower(title),
-		body:   strings.ToLower(head(body, bodyChars)),
-		agents: strings.ToLower(strings.Join(agents, " ")), projects: strings.ToLower(strings.Join(projects, " ")),
+		body: strings.ToLower(head(body, bodyChars)),
 	}
 	d.ftrigger, d.ftitle = []rune(d.trigger), []rune(d.title)
 	d.mask = Mask(d.trigger) | Mask(d.title) | Mask(d.body)
+	return d.With(agents, projects)
+}
+
+// With returns d sent in agents and projects instead: a prompt sent
+// again changes them, not its text, which is what costs to make.
+func (d Doc) With(agents, projects []string) Doc {
+	d.agents, d.projects = strings.ToLower(strings.Join(agents, " ")), strings.ToLower(strings.Join(projects, " "))
 	return d
 }
 

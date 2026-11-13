@@ -42,6 +42,10 @@ func TestPaletteFindsAgentHistory(t *testing.T) {
 		}
 	}
 	shot(t, tt, "palette-history")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "palette-history-dark")
+	tt.SetDark(false)
 
 	for q, want := range map[string]int{"changelog": 1, "@gemini": 1, "#web": 1, "@codex review": 1, "review diff": 1} {
 		p.query = q
@@ -120,6 +124,18 @@ func TestPaletteEditsBeforeInserting(t *testing.T) {
 		}
 	}
 	shot(t, tt, "palette-edit")
+	p.edit.text += ", and list them"
+	tt.Advance(settle)
+	if !tt.HasText("Edited") {
+		t.Fatalf("not edited: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-edit-edited")
+	if err := tt.Click("Revert"); err != nil {
+		t.Fatal(err)
+	}
+	if p.edit.text != "Review this diff for bugs and be brief" {
+		t.Fatalf("not reverted: %q", p.edit.text)
+	}
 	tt.Key(0, ui.KeyEscape)
 	if p.mode != modeSearch {
 		t.Fatal("escape did not go back")
@@ -133,6 +149,30 @@ func TestPaletteEditsBeforeInserting(t *testing.T) {
 	if p.mode != modeEdit || p.edit.of.entry || p.edit.text == "" {
 		t.Fatalf("match edit %+v", p.edit)
 	}
+}
+
+func TestPaletteFadesInWhatArrives(t *testing.T) {
+	a := testApp(t)
+	withHistory(a)
+	p := a.palette
+	p.filter()
+	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	tt.Key(0, ui.KeyDown)
+	chosen, _ := p.selected()
+	a.history.Import([]history.Item{{Source: "qoder", Text: "Summarize what changed since the last release", Time: time.Now()}}, nil)
+	p.refilter()
+	if len(p.arrived) != 1 {
+		t.Fatalf("arrived %v", p.arrived)
+	}
+	if r, _ := p.selected(); r.id() != chosen.id() {
+		t.Fatal("the choice moved")
+	}
+	tt.Frame()
+	if !tt.HasText("Summarize what changed since the last release") {
+		t.Fatalf("not shown: %q", tt.Texts())
+	}
+	tt.Advance(settle)
+	shot(t, tt, "palette-history-arrived")
 }
 
 func TestPaletteSavesAnEntryAsAPrompt(t *testing.T) {
@@ -193,12 +233,22 @@ func TestHistoryPage(t *testing.T) {
 	tt := ui.NewTester(a.settings.view, 780, 900)
 	a.settings.setPage(historyPage)
 	tt.Frame()
-	for _, want := range []string{"Agent History", "3 prompts", "1 prompt · ~/.claude/history.jsonl", "Shorter than"} {
+	for _, want := range []string{"Agent History", "3 prompts from 3 agents", "~/.claude/history.jsonl", "2 prompts", "Shorter than"} {
 		if !tt.HasText(want) {
 			t.Fatalf("page lacks %q: %q", want, tt.Texts())
 		}
 	}
 	shot(t, tt, "history-page")
+	a.scanning.Store(true)
+	tt.Frame()
+	tt.Advance(settle)
+	if !tt.HasText("Reading the agents’ history…") {
+		t.Fatalf("not reading: %q", tt.Texts())
+	}
+	shot(t, tt, "history-page-reading")
+	a.scanning.Store(false)
+	tt.Frame()
+	tt.Advance(settle)
 	if err := tt.Click("Read Claude Code"); err != nil {
 		t.Fatal(err)
 	}

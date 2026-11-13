@@ -149,3 +149,32 @@ func logWeek(a *app, n int) {
 	a.usage = usage.Open(dir)
 	os.RemoveAll(dir)
 }
+
+// BenchmarkPaletteHistoryChange is a change of a large history, as a
+// recall or a scan makes, and the palette's filter after it.
+func BenchmarkPaletteHistoryChange(b *testing.B) {
+	a := testApp(b)
+	manyMatches(a, 2000)
+	items := make([]history.Item, 5000)
+	now := time.Now()
+	for i := range items {
+		items[i] = history.Item{
+			Source: []string{"claude", "codex", "qoder"}[i%3], Project: fmt.Sprintf("/p/proj%d", i%40),
+			Text: strings.Repeat(fmt.Sprintf("Review change %d of the parser, then write a test for it. ", i), 1+i%6),
+			Time: now.Add(-time.Duration(i) * time.Minute),
+		}
+	}
+	a.history.Import(items, nil)
+	p := a.palette
+	p.filter()
+	ids := make([]int64, 0, 100)
+	for _, e := range a.history.Entries()[:100] {
+		ids = append(ids, e.ID)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		a.history.Recall(ids[i%len(ids)], "")
+		p.filter()
+	}
+}

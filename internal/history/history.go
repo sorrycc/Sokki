@@ -152,8 +152,10 @@ type Store struct {
 	d       data
 	byText  map[string]int // normalized text → index in d.Entries
 	visible []Entry
-	gen     uint64
-	timer   *time.Timer
+	// counts are the visible entries of each source, made as asked.
+	counts map[string]int
+	gen    uint64
+	timer  *time.Timer
 	// scanning serializes the scans, which read cursors before and
 	// write them after.
 	scanning sync.Mutex
@@ -182,20 +184,31 @@ func openAt(dir string, now func() time.Time) *Store {
 	for i := range s.d.Entries {
 		s.d.Entries[i].ID = model.NewID()
 	}
-	s.changed()
+	s.reindex()
 	return s
 }
 
-// changed indexes the entries again after a change; s.mu is held.
-func (s *Store) changed() {
+// reindex finds the entries by their text again after entries went, and
+// then does what changed does; s.mu is held. Normalizing every text is
+// what a change costs most, so only a change that removes entries does
+// it: use keeps the index as it adds.
+func (s *Store) reindex() {
 	s.byText = make(map[string]int, len(s.d.Entries))
-	s.visible = make([]Entry, 0, len(s.d.Entries))
 	for i, e := range s.d.Entries {
 		s.byText[Normalize(e.Text)] = i
+	}
+	s.changed()
+}
+
+// changed lists the entries shown again after a change; s.mu is held.
+func (s *Store) changed() {
+	s.visible = make([]Entry, 0, len(s.d.Entries))
+	for _, e := range s.d.Entries {
 		if !e.Hidden {
 			s.visible = append(s.visible, e)
 		}
 	}
+	s.counts = nil
 	s.gen++
 }
 
@@ -254,7 +267,7 @@ func (s *Store) SetSettings(st Settings) {
 		_, ok := Clean(e.Text, st)
 		return !ok && !e.Hidden
 	})
-	s.changed()
+	s.reindex()
 	s.saveLater()
 }
 
@@ -268,17 +281,20 @@ func (s *Store) Imported() time.Time {
 	return time.Unix(s.d.Imported, 0)
 }
 
-// Counts returns the entries not hidden of each source.
+// Counts returns the entries not hidden of each source: shared, to read
+// only.
 func (s *Store) Counts() map[string]int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := map[string]int{}
-	for _, e := range s.visible {
-		for _, src := range e.Sources {
-			out[src]++
+	if s.counts == nil {
+		s.counts = map[string]int{}
+		for _, e := range s.visible {
+			for _, src := range e.Sources {
+				s.counts[src]++
+			}
 		}
 	}
-	return out
+	return s.counts
 }
 
 // Projects returns the projects the entries were sent in, which sources
@@ -316,8 +332,12 @@ func (s *Store) cursors() map[string]Cursor {
 func (s *Store) Import(items []Item, cursors map[string]Cursor) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	moved := false
 	for k, v := range cursors {
-		s.d.Cursors[k] = v
+		if s.d.Cursors[k] != v {
+			s.d.Cursors[k] = v
+			moved = true
+		}
 	}
 	s.d.Imported = s.now().Unix()
 	added, taken := 0, 0
@@ -336,11 +356,14 @@ func (s *Store) Import(items []Item, cursors map[string]Cursor) int {
 		}
 	}
 	// A scan that found nothing leaves Gen, and the palette's search of
-	// the entries, as they were.
+	// the entries, as they were, and the file unwritten: the time of the
+	// reading alone is not worth writing every history again.
 	if taken > 0 {
 		s.changed()
 	}
-	s.saveLater()
+	if taken > 0 || moved {
+		s.saveLater()
+	}
 	return added
 }
 
@@ -425,7 +448,7 @@ func (s *Store) Clear(reimport bool) {
 	if reimport {
 		s.d.Cursors = map[string]Cursor{}
 	}
-	s.changed()
+	s.reindex()
 	s.saveLater()
 }
 
@@ -442,6 +465,24 @@ func (s *Store) BumpMatch(key string) {
 	s.d.Matches[key] = m
 	s.gen++
 	s.saveLater()
+}
+
+// MatchUse returns the uses of the match of key.
+func (s *Store) MatchUse(key string) MatchUse {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.d.Matches[key]
+}
+
+// Find returns the ID of the entry, hidden or not, whose text is key
+// once normalized: key is Normalize's.
+func (s *Store) Find(key string) (int64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i, ok := s.byText[key]; ok {
+		return s.d.Entries[i].ID, true
+	}
+	return 0, false
 }
 
 // MatchUses returns the uses of every match, by key: a copy.
