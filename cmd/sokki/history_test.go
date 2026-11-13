@@ -261,7 +261,7 @@ func TestHistoryPage(t *testing.T) {
 	tt := ui.NewTester(a.settings.view, 780, 900)
 	a.settings.setPage(historyPage)
 	tt.Frame()
-	for _, want := range []string{"Agent History", "3 prompts from 3 agents", "~/.claude/history.jsonl", "2 prompts", "Shorter than"} {
+	for _, want := range []string{"Agent History", "3 prompts from 3 agents", "~/.claude*/history.jsonl", "2 prompts", "Shorter than"} {
 		if !tt.HasText(want) {
 			t.Fatalf("page lacks %q: %q", want, tt.Texts())
 		}

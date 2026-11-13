@@ -36,6 +36,7 @@ The update window shows the section of the version it offers: every release need
 - **Settings → Agent History** marks agents whose history isn't on this Mac as **Not found**.
 - The folder button by an agent in **Settings → Agent History** shows its history file in Finder.
 - The palette stays quick over a large history, and saving the history never pauses the app.
+- **Settings → Agent History** also reads Claude Code profiles kept in `~/.claude-*` folders.
 
 ## 0.3.0
 

@@ -157,8 +157,10 @@ func TestSources(t *testing.T) {
 {"display":"Summarize [Pasted text #1 +3 lines] in one line","pastedContents":{"1":{"id":1,"type":"text","contentHash":"abc123"}},"timestamp":1784531162348,"project":"/p/sokki"}
 {"display":"Explain [Pasted text #1 +1 lines] briefly","pastedContents":{"1":{"id":1,"type":"text","content":"inline words here"}},"timestamp":1784531162349,"project":"/p/sokki"}
 `,
-		".claude/paste-cache/abc123.txt": "the pasted log\nof three\nlines",
-		".codex/history.jsonl":           `{"session_id":"s","ts":1785809189,"text":"Fix the failing test in the parser"}` + "\n",
+		".claude/paste-cache/abc123.txt":      "the pasted log\nof three\nlines",
+		".claude-work/history.jsonl":          `{"display":"Review [Pasted text #1 +1 lines] for the work profile","pastedContents":{"1":{"id":1,"type":"text","contentHash":"def456"}},"timestamp":1784531162350,"project":"/p/w"}` + "\n",
+		".claude-work/paste-cache/def456.txt": "the work diff",
+		".codex/history.jsonl":                `{"session_id":"s","ts":1785809189,"text":"Fix the failing test in the parser"}` + "\n",
 		".gemini/antigravity-cli/history.jsonl": `{"display":"/model","timestamp":1787215945553,"type":"slash_command"}
 {"display":"how to call agy headlessly?","timestamp":1787215986825,"workspace":"/p/q"}
 `,
@@ -174,6 +176,9 @@ func TestSources(t *testing.T) {
 		".local/state/opencode/prompt-history.jsonl": `{"input":"Port the scanner to Go please","parts":[],"mode":"normal"}` + "\n",
 		"proj/.aider.input.history":                  "\n# 2026-01-02 10:00:00.123456\n+Refactor the parser\n+into two files\n\n# 2026-01-02 10:01:00.000000\n+/add main.go\n",
 	})
+	work := filepath.Join(home, ".claude-work", "history.jsonl")
+	hourAgo := time.Now().Add(-time.Hour)
+	os.Chtimes(work, hourAgo, hourAgo)
 	s := Open(t.TempDir())
 	n := s.Scan(Env{Home: home, Projects: []string{filepath.Join(home, "proj")}})
 	var texts []string
@@ -184,6 +189,7 @@ func TestSources(t *testing.T) {
 		"Fix the failing test in the parser",
 		"Summarize the pasted log\nof three\nlines in one line",
 		"Explain inline words here briefly",
+		"Review the work diff for the work profile",
 		"how to call agy headlessly?",
 		"Add a test for the scanner",
 		"Follow up on the PR review",
@@ -207,6 +213,9 @@ func TestSources(t *testing.T) {
 		if e.Text == "Rename the module to sokki" && e.Project() != "g" {
 			t.Fatalf("grok project %q", e.Projects)
 		}
+		if strings.HasSuffix(e.Text, "work profile") && (!slices.Equal(e.Sources, []string{"claude"}) || e.Project() != "w") {
+			t.Fatalf("claude profile %+v", e)
+		}
 	}
 
 	for _, src := range Sources {
@@ -219,6 +228,12 @@ func TestSources(t *testing.T) {
 	}
 	if w := s.Where("claude"); w != filepath.Join(home, ".claude", "history.jsonl") {
 		t.Errorf("claude where %q", w)
+	}
+	soon := time.Now().Add(time.Hour)
+	os.Chtimes(work, soon, soon)
+	s.Scan(Env{Home: home})
+	if w := s.Where("claude"); w != work {
+		t.Errorf("claude profile where %q", w)
 	}
 	empty, bare := Open(t.TempDir()), t.TempDir()
 	os.MkdirAll(filepath.Join(bare, ".qoder", "projects"), 0o755)

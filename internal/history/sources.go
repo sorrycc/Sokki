@@ -34,7 +34,7 @@ type Source struct {
 
 // locate returns whether a file the source reads is there, and what to
 // show in the Finder for it: the file of them changed last; with none, the
-// nearest folder of its one pattern that is there, short of the home
+// nearest folder of its first pattern that is there, short of the home
 // folder; else "".
 func (src Source) locate(env Env) (found bool, where string) {
 	pats := src.files(env)
@@ -47,7 +47,7 @@ func (src Source) locate(env Env) (found bool, where string) {
 			}
 		}
 	}
-	if where != "" || len(pats) != 1 {
+	if where != "" || len(pats) == 0 {
 		return where != "", where
 	}
 	dir := pats[0]
@@ -83,8 +83,8 @@ type Env struct {
 
 // Sources are the agents the history reads.
 var Sources = []Source{
-	{ID: "claude", Name: "Claude Code", Where: "~/.claude/history.jsonl", scan: scanClaude,
-		files: under(".claude", "history.jsonl")},
+	{ID: "claude", Name: "Claude Code", Where: "~/.claude*/history.jsonl", scan: scanClaude,
+		files: claudeHistories},
 	{ID: "codex", Name: "Codex", Where: "~/.codex/history.jsonl", scan: scanCodex,
 		files: under(".codex", "history.jsonl")},
 	{ID: "gemini", Name: "Gemini CLI", Where: "~/.gemini/tmp/*/logs.json", scan: scanGemini,
@@ -211,9 +211,30 @@ func tailJSON[T any](path string, cur map[string]Cursor, out map[string]Cursor, 
 
 func unixMilli(ms int64) time.Time { return time.UnixMilli(ms) }
 
-// scanClaude reads Claude Code's history, putting back the text pasted
-// into a prompt, which it keeps apart, in place of "[Pasted text #1 …]".
+// claudeHistories are the patterns of Claude Code's history: in
+// ~/.claude, and in the ~/.claude-* folders of its other profiles.
+func claudeHistories(env Env) []string {
+	return []string{
+		filepath.Join(env.Home, ".claude", "history.jsonl"),
+		filepath.Join(env.Home, ".claude-*", "history.jsonl"),
+	}
+}
+
+// scanClaude reads Claude Code's history of each profile, putting back the
+// text pasted into a prompt, which it keeps apart, in place of
+// "[Pasted text #1 …]".
 func scanClaude(env Env, cur map[string]Cursor, emit func(Item)) map[string]Cursor {
+	out := map[string]Cursor{}
+	for _, pat := range claudeHistories(env) {
+		m, _ := filepath.Glob(pat)
+		for _, path := range m {
+			scanClaudeFile(path, cur, out, emit)
+		}
+	}
+	return out
+}
+
+func scanClaudeFile(path string, cur, out map[string]Cursor, emit func(Item)) {
 	type pasted struct {
 		Type        string `json:"type"`
 		Content     string `json:"content"`
@@ -225,9 +246,8 @@ func scanClaude(env Env, cur map[string]Cursor, emit func(Item)) map[string]Curs
 		Timestamp int64             `json:"timestamp"`
 		Project   string            `json:"project"`
 	}
-	dir := filepath.Join(env.Home, ".claude")
-	out := map[string]Cursor{}
-	tailJSON(filepath.Join(dir, "history.jsonl"), cur, out, nil, func(l line) {
+	dir := filepath.Dir(path)
+	tailJSON(path, cur, out, nil, func(l line) {
 		text := pastedRef.ReplaceAllStringFunc(l.Display, func(ref string) string {
 			p, ok := l.Pasted[pastedRef.FindStringSubmatch(ref)[1]]
 			switch {
@@ -244,7 +264,6 @@ func scanClaude(env Env, cur map[string]Cursor, emit func(Item)) map[string]Curs
 		})
 		emit(Item{Text: text, Project: l.Project, Time: unixMilli(l.Timestamp)})
 	})
-	return out
 }
 
 var pastedRef = regexp.MustCompile(`\[Pasted text #(\d+)[^\]]*\]`)

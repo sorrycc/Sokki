@@ -16,7 +16,7 @@ first costs a `stat` per file.
 
 | Agent       | Reads                                           | Takes                                       |
 |-------------|-------------------------------------------------|---------------------------------------------|
-| Claude Code | `~/.claude/history.jsonl`                        | `display`; pasted text put back from `pastedContents` or `paste-cache/<hash>.txt` |
+| Claude Code | `~/.claude*/history.jsonl` (each profile)       | `display`; pasted text put back from `pastedContents` or `paste-cache/<hash>.txt` |
 | Codex       | `~/.codex/history.jsonl`                         | `text`, `ts`                                |
 | Gemini CLI  | `~/.gemini/tmp/*/logs.json`                      | records of `type: user`                     |
 | Antigravity | `~/.gemini/antigravity-cli/history.jsonl`        | `display`, not slash commands               |
