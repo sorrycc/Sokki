@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/engine"
+	"sokki/internal/history"
 	"sokki/internal/logx"
 	"sokki/internal/macos"
 	"sokki/internal/model"
@@ -98,8 +99,10 @@ type palette struct {
 	// while the footer says so.
 	hidden int64
 	// arrived are the history's entries that a reading brought while
-	// the palette showed, which fade in, until it shows again.
-	arrived map[int64]bool
+	// the palette showed, by when their row first showed (zero until
+	// then), which fade in: MyGo's List builds each row in a box of its
+	// own, born with it, so an Enter transition never plays there.
+	arrived map[int64]time.Time
 	// captured is what the capture shortcut did, for modeSaved.
 	captured capture
 	// selectedText reads the selection in the app in front:
@@ -146,6 +149,14 @@ func (p *palette) invalidate() {
 	}
 }
 
+// redraw draws the palette again, as what it says changed but not what
+// it lists: a reading starting or ending.
+func (p *palette) redraw() {
+	if p != nil && p.win != nil && p.win.IsVisible() {
+		p.win.Invalidate()
+	}
+}
+
 // refilter filters again after the matches or the history changed under
 // the palette: the choice stays where it was, and the prompts that came
 // in fade in.
@@ -159,9 +170,9 @@ func (p *palette) refilter() {
 	for _, r := range p.results {
 		if r.entry && !was[r.id()] {
 			if p.arrived == nil {
-				p.arrived = map[int64]bool{}
+				p.arrived = map[int64]time.Time{}
 			}
-			p.arrived[r.id()] = true
+			p.arrived[r.id()] = time.Time{}
 		}
 	}
 	if ok {
@@ -478,10 +489,17 @@ func (p *palette) footer(c *ui.Context, hints func()) {
 
 func (p *palette) empty(c *ui.Context) {
 	if p.scope == scopeHistory && p.q.Empty() {
-		emptyState(c, iconHistory, "No Agent History",
-			"Prompts you send in Claude Code, Codex, Gemini and other agents show here, to find and send again anywhere.", func() {
-				ui.Button(c, "History Settings…").OnClick(func() { p.hide(); p.a.settings.showPage(historyPage) })
-			})
+		title, detail := p.historyEmpty()
+		emptyState(c, iconHistory, title, detail, func() {
+			ui.Button(c, "History Settings…").OnClick(func() { p.hide(); p.a.settings.showPage(historyPage) })
+		})
+		return
+	}
+	if p.scope == scopeHistory {
+		emptyState(c, iconSearch, "No Results", fmt.Sprintf("Nothing in the agents’ history matches “%s”.", strings.TrimSpace(p.query)), func() {
+			ui.Button(c, "Search Everything").OnClick(func() { p.setScope(scopeAll) })
+			kbd(c, "⌘1")
+		})
 		return
 	}
 	if len(p.a.store.Matches) == 0 && p.scope != scopeHistory && p.q.Empty() {
@@ -496,6 +514,33 @@ func (p *palette) empty(c *ui.Context) {
 		ui.Button(c, "Save as a New Prompt").OnClick(p.quickAdd)
 		kbd(c, "⌘N")
 	})
+}
+
+// historyEmpty says why the History scope has nothing to list: what
+// Sokki is doing, or what the person can do about it.
+func (p *palette) historyEmpty() (title, detail string) {
+	h := p.a.history
+	st := h.Settings()
+	on, found := 0, 0
+	for _, src := range history.Sources {
+		if st.On(src.ID) {
+			on++
+			if h.Found(src.ID) {
+				found++
+			}
+		}
+	}
+	switch {
+	case p.a.scanning.Load():
+		return "Reading Your Agents…", "Prompts you sent show here as soon as they’re read."
+	case on == 0:
+		return "Every Agent Is Off", "Turn on the agents you use in History Settings to find what you sent them here."
+	case len(h.All()) > 0:
+		return "Every Prompt Is Hidden", "Read Everything Again in History Settings to bring back the prompts you hid."
+	case found == 0:
+		return "No Agents Found", "Sokki finds what you send in Claude Code, Codex, Gemini CLI and more, once you use one on this Mac."
+	}
+	return "No Agent History", "Prompts you send in Claude Code, Codex, Gemini and other agents show here, to find and send again anywhere."
 }
 
 func (p *palette) row(c *ui.Context, i int) {

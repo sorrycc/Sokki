@@ -32,14 +32,37 @@ type Source struct {
 	files func(env Env) []string
 }
 
-// found reports whether a file the source reads is there.
-func (src Source) found(env Env) bool {
-	for _, pat := range src.files(env) {
-		if m, _ := filepath.Glob(pat); len(m) > 0 {
-			return true
+// locate returns whether a file the source reads is there, and what to
+// show in the Finder for it: the file of them changed last; with none, the
+// nearest folder of its one pattern that is there, short of the home
+// folder; else "".
+func (src Source) locate(env Env) (found bool, where string) {
+	pats := src.files(env)
+	var at time.Time
+	for _, pat := range pats {
+		m, _ := filepath.Glob(pat)
+		for _, f := range m {
+			if fi, err := os.Stat(f); err == nil && (where == "" || fi.ModTime().After(at)) {
+				where, at = f, fi.ModTime()
+			}
 		}
 	}
-	return false
+	if where != "" || len(pats) != 1 {
+		return where != "", where
+	}
+	dir := pats[0]
+	for {
+		dir = filepath.Dir(dir)
+		if rel, err := filepath.Rel(env.Home, dir); err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			return false, ""
+		}
+		if strings.ContainsAny(dir, "*?[") {
+			continue
+		}
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return false, dir
+		}
+	}
 }
 
 // under is files for a source of a single pattern, under the home
@@ -112,9 +135,9 @@ func (s *Store) Scan(env Env) int {
 	was := s.cursors()
 	var items []Item
 	cursors := map[string]Cursor{}
-	found := map[string]bool{}
+	found, where := map[string]bool{}, map[string]string{}
 	for _, src := range Sources {
-		found[src.ID] = src.found(env)
+		found[src.ID], where[src.ID] = src.locate(env)
 		if !st.On(src.ID) || !found[src.ID] {
 			continue
 		}
@@ -127,7 +150,7 @@ func (s *Store) Scan(env Env) int {
 	}
 	n := s.Import(items, cursors)
 	s.mu.Lock()
-	s.found = found
+	s.found, s.where = found, where
 	s.mu.Unlock()
 	if n > 0 {
 		logx.Debugf("[History] %d new prompts of %d read", n, len(items))

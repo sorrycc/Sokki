@@ -591,7 +591,9 @@ func TestAgo(t *testing.T) {
 		10 * time.Second:    "just now",
 		5 * time.Minute:     "5 minutes ago",
 		1 * time.Hour:       "1 hour ago",
+		20 * time.Hour:      "20 hours ago",
 		30 * time.Hour:      "yesterday",
+		40 * time.Hour:      "2 days ago",
 		72 * time.Hour:      "3 days ago",
 		30 * 24 * time.Hour: "September 18",
 	}

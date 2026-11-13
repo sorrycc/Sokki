@@ -50,6 +50,8 @@ type settingsWindow struct {
 	unusedShown  bool
 	// historyForm is what the Agent History page edits.
 	historyForm historyForm
+	// historyDay is the newest day of the history, which its summary says.
+	historyDay dayCount
 	// insightsCache is what the Insights page counted last.
 	insightsCache insightsCache
 	confirmOut    bool

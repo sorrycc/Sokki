@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/history"
@@ -133,6 +134,7 @@ func TestPaletteEditsBeforeInserting(t *testing.T) {
 		t.Fatalf("not edited: %q", tt.Texts())
 	}
 	shot(t, tt, "palette-edit-edited")
+	shotDark(t, tt, "palette-edit-edited-dark")
 	if err := tt.Click("Revert"); err != nil {
 		t.Fatal(err)
 	}
@@ -171,10 +173,33 @@ func TestPaletteFadesInWhatArrives(t *testing.T) {
 		t.Fatal("the choice moved")
 	}
 	tt.Frame()
-	if !tt.HasText("Summarize what changed since the last release") {
+	r, ok := tt.Find("Summarize what changed since the last release")
+	if !ok {
 		t.Fatalf("not shown: %q", tt.Texts())
 	}
-	tt.Advance(settle)
+	// It fades in, then shows as the others do.
+	ink := func() (n int) {
+		img := tt.Image()
+		s := float32(img.Bounds().Dx()) / paletteWidth
+		for y := int(r.Y * s); y < int((r.Y+r.H)*s); y++ {
+			for x := int(r.X * s); x < int((r.X+r.W)*s); x++ {
+				n += int(img.RGBAAt(x, y).R)
+			}
+		}
+		return n
+	}
+	first := ink()
+	tt.Advance(arriveFor / 6)
+	shot(t, tt, "palette-history-arriving")
+	mid := ink()
+	tt.Advance(arriveFor)
+	last := ink()
+	if first == mid || mid == last {
+		t.Fatalf("no fade: %d, %d, %d", first, mid, last)
+	}
+	if len(p.arrived) != 0 || tt.FramePending() {
+		t.Fatalf("still arriving: %v", p.arrived)
+	}
 	shot(t, tt, "palette-history-arrived")
 }
 
@@ -343,6 +368,7 @@ func TestPaletteGroupsHistoryByDay(t *testing.T) {
 		}
 	}
 	shot(t, tt, "palette-history-days")
+	shotDark(t, tt, "palette-history-days-dark")
 	// The keys go from prompt to prompt, over the headings.
 	for i := 1; i < 4; i++ {
 		tt.Key(0, ui.KeyDown)
@@ -377,21 +403,29 @@ func TestReadNowSaysWhatItFound(t *testing.T) {
 	tt := ui.NewTester(a.settings.view, 780, 900)
 	a.settings.setPage(historyPage)
 	tt.Frame()
-	a.lastRead = historyRead{found: 2, fresh: true}
+	a.lastRead = historyRead{found: 2, at: time.Now(), fresh: true}
 	tt.Frame()
 	tt.Advance(settle)
 	if !tt.HasText("2 new prompts read just now.") {
 		t.Fatalf("no news: %q", tt.Texts())
 	}
 	shot(t, tt, "history-page-found")
+	shotDark(t, tt, "history-page-found-dark")
 	tt.Advance(readNoteFor)
-	if tt.HasText("2 new prompts read just now.") || !tt.HasText("Read just now. New prompts come in every 2 minutes and as the palette opens.") {
+	if tt.HasText("2 new prompts read just now.") || !tt.HasText("Read just now. Checked again every 2 minutes.") {
 		t.Fatalf("news stays: %q", tt.Texts())
 	}
-	a.lastRead = historyRead{fresh: true}
+	a.lastRead = historyRead{at: time.Now(), fresh: true}
 	tt.Frame()
 	if !tt.HasText("Up to date: nothing new since the last reading.") {
 		t.Fatalf("not up to date: %q", tt.Texts())
+	}
+	// A reading Settings did not show at the time says nothing later.
+	tt.Advance(readNoteFor)
+	a.lastRead = historyRead{found: 5, at: time.Now().Add(-time.Minute), fresh: true}
+	tt.Frame()
+	if tt.HasText("5 new prompts read just now.") {
+		t.Fatalf("stale news: %q", tt.Texts())
 	}
 
 	// The palette's footer says what came in.
@@ -423,6 +457,125 @@ func TestHistoryPageSaysWhatIsNotFound(t *testing.T) {
 		t.Fatalf("%d not found: %q", n, tt.Texts())
 	}
 	shot(t, tt, "history-page-not-found-dark")
+	tt.SetDark(false)
+	tt.Frame()
+	tt.Advance(settle)
+	shot(t, tt, "history-page-not-found")
+
+	// The Finder shows the file read, or where an agent would keep it.
+	var shown []string
+	showInFinder = func(path string) { shown = append(shown, path) }
+	defer func() { showInFinder = mygo.Shell.ShowItemInFolder }()
+	if err := tt.Click("Show Codex’s History in Finder"); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(a.historyHome, ".gemini", "tmp"), 0o755)
+	a.history.Scan(a.historyEnv())
+	tt.Frame()
+	if err := tt.Click("Show Where Gemini CLI Keeps Its History in Finder"); err != nil {
+		t.Fatal(err)
+	}
+	if tt.HasText("Show Where Claude Code Keeps Its History in Finder") {
+		t.Fatal("a way to the home folder")
+	}
+	if want := []string{p, filepath.Join(a.historyHome, ".gemini", "tmp")}; !slices.Equal(shown, want) {
+		t.Fatalf("shown %q", shown)
+	}
+}
+
+func TestHistoryPageSaysTheNewestDay(t *testing.T) {
+	a := testApp(t)
+	tt := ui.NewTester(a.settings.view, 780, 900)
+	a.settings.setPage(historyPage)
+	tt.Frame()
+	if !tt.HasText("No prompts yet") {
+		t.Fatalf("not empty: %q", tt.Texts())
+	}
+	now := time.Now()
+	a.history.Import([]history.Item{
+		{Source: "claude", Text: "Sent a week ago, one of two", Time: now.AddDate(0, 0, -7)},
+		{Source: "claude", Text: "Sent a week ago, two of two", Time: now.AddDate(0, 0, -7)},
+		{Source: "claude", Text: "Sent two weeks ago, alone", Time: now.AddDate(0, 0, -14)},
+	}, nil)
+	tt.Frame()
+	if want := "2 on " + now.AddDate(0, 0, -7).Format("Jan 2"); !tt.HasText(want) || !tt.HasText("3 prompts from Claude Code") {
+		t.Fatalf("lacks %q: %q", want, tt.Texts())
+	}
+	a.history.Import([]history.Item{{Source: "codex", Text: "Sent just now, and new", Time: now}}, nil)
+	tt.Frame()
+	tt.Advance(settle)
+	if !tt.HasText("1 today") || !tt.HasText("4 prompts from 2 agents") {
+		t.Fatalf("not today: %q", tt.Texts())
+	}
+	shot(t, tt, "history-page-today")
+}
+
+func TestPaletteSaysWhyHistoryIsEmpty(t *testing.T) {
+	a := testApp(t)
+	p := a.palette
+	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	tt.Key(ui.Cmd, ui.Key3)
+	if !tt.HasText("No Agent History") {
+		t.Fatalf("lacks the empty state: %q", tt.Texts())
+	}
+	a.history.Scan(a.historyEnv())
+	tt.Frame()
+	if !tt.HasText("No Agents Found") {
+		t.Fatalf("agents found: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-history-no-agents")
+	a.scanning.Store(true)
+	tt.Frame()
+	if !tt.HasText("Reading Your Agents…") {
+		t.Fatalf("not reading: %q", tt.Texts())
+	}
+	a.scanning.Store(false)
+
+	withHistory(a)
+	p.query = "nothing like this"
+	p.filter()
+	tt.Frame()
+	tt.Advance(settle)
+	if !tt.HasText("Nothing in the agents’ history matches “nothing like this”.") {
+		t.Fatalf("lacks no results: %q", tt.Texts())
+	}
+	shot(t, tt, "palette-history-no-results")
+	shotDark(t, tt, "palette-history-no-results-dark")
+	if err := tt.Click("Search Everything"); err != nil {
+		t.Fatal(err)
+	}
+	if p.scope != scopeAll {
+		t.Fatalf("scope %d", p.scope)
+	}
+
+	p.query = ""
+	tt.Key(ui.Cmd, ui.Key3)
+	for _, e := range a.history.Entries() {
+		a.history.Hide(e.ID)
+	}
+	p.filter()
+	tt.Frame()
+	if !tt.HasText("Every Prompt Is Hidden") {
+		t.Fatalf("not hidden: %q", tt.Texts())
+	}
+	st := a.history.Settings()
+	for _, src := range history.Sources {
+		st.Off = append(st.Off, src.ID)
+	}
+	a.history.SetSettings(st)
+	tt.Frame()
+	if !tt.HasText("Every Agent Is Off") {
+		t.Fatalf("not off: %q", tt.Texts())
+	}
+}
+
+func TestReadNowAskedAsAReadingRuns(t *testing.T) {
+	a := testApp(t)
+	a.scanning.Store(true)
+	a.readHistoryNow()
+	if !a.readAsked.Load() {
+		t.Fatal("the ask was lost")
+	}
 }
 
 func TestPreviewMarksWhereTheSearchFound(t *testing.T) {
@@ -453,4 +606,20 @@ func TestPreviewMarksWhereTheSearchFound(t *testing.T) {
 		t.Fatalf("match not in view: %q", tt.Texts())
 	}
 	shot(t, tt, "palette-history-preview-hits")
+	shotDark(t, tt, "palette-history-preview-hits-dark")
+}
+
+// shotDark saves a shot of what tt shows in dark mode, then goes back to
+// light.
+func shotDark(t *testing.T, tt *ui.Tester, name string) {
+	if os.Getenv("SOKKI_SHOTS") == "" {
+		return
+	}
+	tt.SetDark(true)
+	tt.Frame()
+	tt.Advance(settle)
+	shot(t, tt, name)
+	tt.SetDark(false)
+	tt.Frame()
+	tt.Advance(settle)
 }

@@ -157,9 +157,10 @@ type Store struct {
 	counts map[string]int
 	gen    uint64
 	timer  *time.Timer
-	// found are the sources whose files the last scan found, by ID; nil
-	// before it.
+	// found are the sources whose files the last scan found, by ID, and
+	// where what to show in the Finder for each; nil before it.
 	found map[string]bool
+	where map[string]string
 	// scanning serializes the scans, which read cursors before and
 	// write them after.
 	scanning sync.Mutex
@@ -284,6 +285,15 @@ func (s *Store) Found(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.found == nil || s.found[id]
+}
+
+// Where returns what to show in the Finder for the source of id, as of
+// the last scan: the file of it changed last or, with none, the nearest
+// folder of where it would be; "" for neither, or before a scan.
+func (s *Store) Where(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.where[id]
 }
 
 // Imported returns when the sources were last read.

@@ -162,6 +162,11 @@ func (p *palette) unhideEntry() {
 	p.hidden, p.flash = 0, flash{}
 	p.filter()
 	p.chooseID(id)
+	// It comes back as a reading's prompts come in.
+	if p.arrived == nil {
+		p.arrived = map[int64]time.Time{}
+	}
+	p.arrived[id] = time.Time{}
 }
 
 // scopeNote says where a search found nothing.
@@ -169,8 +174,6 @@ func scopeNote(scope int) string {
 	switch scope {
 	case scopeMatches:
 		return " in your matches"
-	case scopeHistory:
-		return " in the agents’ history"
 	}
 	return ""
 }
@@ -245,10 +248,8 @@ func (p *palette) entryRow(c *ui.Context, i int) {
 	chosen := i == p.chosen
 	text, mutedColor := rowColors(t, chosen)
 	row := ui.Row(c).Padding(7, 10).Gap(10).AlignItems(ui.Center).Radius(8)
-	if p.arrived[e.ID] {
-		row.Transition(arriveTransition)
-	}
 	rowFill(c, row, chosen)
+	p.arriving(c, row, e.ID, chosen)
 	row.Children(func() {
 		title := e.Title()
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
@@ -275,11 +276,48 @@ func entryDetail(e history.Entry, now time.Time) string {
 	return s + ago(time.Unix(e.Last, 0), now)
 }
 
+// arriving fades in the row of an entry a reading just brought, with a
+// wash of the accent under it that fades out after: by hand, frame by
+// frame, as MyGo's List leaves a row's Enter transition out.
+func (p *palette) arriving(c *ui.Context, row ui.Element, id int64, chosen bool) {
+	at, ok := p.arrived[id]
+	if !ok {
+		return
+	}
+	now := c.Now()
+	if at.IsZero() {
+		at = now
+		p.arrived[id] = at
+	}
+	k := float32(now.Sub(at)) / float32(arriveFor)
+	if k >= 1 {
+		delete(p.arrived, id)
+		return
+	}
+	if c.Preferences().ReduceMotion {
+		k = max(k, 1-float32(motionFast)/float32(arriveFor))
+	}
+	// The row is whole by a third of the way; the wash goes on after.
+	in := min(1, 3*k)
+	row.Opacity(1 - (1-in)*(1-in))
+	if !chosen && !row.Hovered() {
+		row.Background(c.Theme().Accent.Alpha(0.14 * (1 - k) * (1 - k)))
+	}
+	c.After(time.Second / 60)
+}
+
 func (p *palette) entryPreview(c *ui.Context, e history.Entry) {
 	t := c.Theme()
 	now := time.Now()
 	ui.Column(c).Fill().Children(func() {
-		ui.Column(c).Padding(16, 18, 12, 18).Gap(8).Children(func() {
+		// A hairline under the head once the text scrolls under it.
+		head := ui.Column(c).Padding(16, 18, 12, 18).Gap(8).BorderWidth(0, 0, 0.5, 0)
+		edge := t.Border.Alpha(0)
+		if p.previewScroll.Y > 1 {
+			edge = t.Border.Alpha(0.6)
+		}
+		head.BorderColor(head.AnimateColor("edge", edge, hoverAnim))
+		head.Children(func() {
 			heading(c, e.Title()).SingleLine().Ellipsis("…")
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				for _, src := range e.Sources {

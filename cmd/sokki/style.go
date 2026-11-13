@@ -73,6 +73,8 @@ const (
 	motionBase = 180 * time.Millisecond
 	motionGrow = 240 * time.Millisecond
 	stagger    = 25 * time.Millisecond
+	// arriveFor is how long a row a reading brought stands out.
+	arriveFor = 900 * time.Millisecond
 )
 
 var (
@@ -97,13 +99,6 @@ var (
 	flashTransition = ui.ElementTransition{
 		Duration: 200 * time.Millisecond, Colors: true,
 		Enter: &ui.Motion{X: -8},
-	}
-	// arriveTransition is a row a reading brought into a list that
-	// shows, fading in from a little above; Size alone, so that only
-	// its coming in is animated, not where the keys move it.
-	arriveTransition = ui.ElementTransition{
-		Duration: motionGrow, Size: true,
-		Enter: &ui.Motion{Opacity: 0, Y: -6},
 	}
 	// unfoldTransition is a part opening under its title.
 	unfoldTransition = ui.ElementTransition{
@@ -271,25 +266,34 @@ func variableRanges(c *ui.Context, s string) []ui.TextRange {
 	return out
 }
 
-// ago says how long ago t was, as "5 minutes ago", or the day it was
+// ago says how long ago t was, as "5 minutes ago", then by days as the
+// calendar counts them, as the History scope's days do, or the day it was
 // once that is more than a week.
 func ago(t, now time.Time) string {
 	d := now.Sub(t)
+	days := calendarDays(t, now)
 	switch {
 	case d < time.Minute:
 		return "just now"
 	case d < time.Hour:
 		return plural(int(d/time.Minute), "minute", "minutes") + " ago"
-	case d < 24*time.Hour:
+	case d < 24*time.Hour && days <= 1:
 		return plural(int(d/time.Hour), "hour", "hours") + " ago"
-	case d < 48*time.Hour:
+	case days == 1:
 		return "yesterday"
-	case d < 7*24*time.Hour:
-		return fmt.Sprintf("%d days ago", int(d/(24*time.Hour)))
+	case days < 7:
+		return fmt.Sprintf("%d days ago", days)
 	case t.Year() == now.Year():
 		return t.Local().Format("January 2")
 	}
 	return t.Local().Format("January 2, 2006")
+}
+
+// calendarDays is how many midnights there are from t to now.
+func calendarDays(t, now time.Time) int {
+	y, m, d := t.Local().Date()
+	ny, nm, nd := now.Local().Date()
+	return int(time.Date(ny, nm, nd, 12, 0, 0, 0, time.UTC).Sub(time.Date(y, m, d, 12, 0, 0, 0, time.UTC)) / (24 * time.Hour))
 }
 
 // dot is a small round mark of a state's color.

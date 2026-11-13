@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/history"
@@ -63,7 +65,7 @@ func (s *settingsWindow) agentHistory(c *ui.Context) {
 		group(c, "Agents", func() {
 			for i, src := range history.Sources {
 				on := st.On(src.ID)
-				if agentSetting(c, src, counts[src.ID], h.Found(src.ID), &on, i == 0) {
+				if agentSetting(c, src, counts[src.ID], h.Found(src.ID), h.Where(src.ID), &on, i == 0) {
 					s.a.setSource(src.ID, on)
 				}
 			}
@@ -115,33 +117,55 @@ func (s *settingsWindow) agentHistory(c *ui.Context) {
 // readNoteFor is how long the summary says what Read Now found.
 const readNoteFor = 4 * time.Second
 
+// showInFinder shows a file or folder in the Finder; tests have their own.
+var showInFinder = mygo.Shell.ShowItemInFolder
+
 // historySummary heads the Agent History page: how many prompts Sokki
-// has, from how many agents, and when it last read them, or that it reads
-// them now.
+// has, from how many agents, how many came in the newest day, and when it
+// last read them, or that it reads them now.
 func (s *settingsWindow) historySummary(c *ui.Context) {
 	h := s.a.history
 	t := c.Theme()
 	busy := s.a.scanning.Load()
-	agents := 0
-	for _, n := range h.Counts() {
-		if n > 0 {
-			agents++
+	var from []string
+	counts := h.Counts()
+	for _, src := range history.Sources {
+		if counts[src.ID] > 0 {
+			from = append(from, src.Name)
 		}
 	}
+	total := len(h.Entries())
 	group(c, "", func() {
 		ui.Row(c).Padding(12, 14).Gap(12).AlignItems(ui.Center).Children(func() {
 			iconPlate(c, iconHistory, t.Accent, 34)
-			ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-				title := plural(len(h.Entries()), "prompt", "prompts")
-				if agents > 1 {
-					title += " from " + plural(agents, "agent", "agents")
-				}
-				ui.Text(c, title).FontSize(14).FontWeight(600).FontFeatures("tnum").SingleLine()
+			ui.Column(c).Grow(1).Shrink(1).Gap(3).Children(func() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					title := "No prompts yet"
+					switch {
+					case total == 0:
+					case len(from) == 1:
+						title = plural(total, "prompt", "prompts") + " from " + from[0]
+					case len(from) > 1:
+						title = plural(total, "prompt", "prompts") + " from " + plural(len(from), "agent", "agents")
+					default:
+						title = plural(total, "prompt", "prompts")
+					}
+					ui.Text(c, title).FontSize(14).FontWeight(600).FontFeatures("tnum").SingleLine().Ellipsis("…").Shrink(1)
+					if n, day := s.newestDay(c.Now()); n > 0 {
+						c.Key(day)
+						ui.Text(c, strconv.Itoa(n)+" "+day).FontSize(11).FontWeight(600).FontFeatures("tnum").
+							TextColor(t.Accent).Padding(1, 7).Radius(8).Background(t.Accent.Alpha(0.12)).SingleLine().Shrink(0).
+							Tooltip("Prompts last sent " + day).Transition(fadeTransition)
+					}
+				})
 				// What it is doing, or for a moment what Read Now found,
 				// fading in as it changes.
 				r := &s.a.lastRead
 				if r.fresh {
-					r.fresh, r.until = false, c.Now().Add(readNoteFor)
+					r.fresh = false
+					if time.Since(r.at) < readNoteFor {
+						r.until = c.Now().Add(readNoteFor)
+					}
 				}
 				state := "read"
 				if busy {
@@ -170,8 +194,9 @@ func (s *settingsWindow) historySummary(c *ui.Context) {
 					read := "Not read yet."
 					if at := h.Imported(); !at.IsZero() {
 						read = "Read " + ago(at, time.Now()) + "."
+						c.After(30 * time.Second) // which ages
 					}
-					caption(c, read+" New prompts come in every 2 minutes and as the palette opens.").SingleLine().Ellipsis("…").Shrink(1)
+					caption(c, read+" Checked again every 2 minutes.").Tooltip("Sokki reads what is new every 2 minutes, and as the palette opens.").SingleLine().Ellipsis("…").Shrink(1)
 				})
 			})
 			ui.Button(c, "Read Now").Disabled(busy).Shrink(0).OnClick(s.a.readHistoryNow)
@@ -179,11 +204,55 @@ func (s *settingsWindow) historySummary(c *ui.Context) {
 	})
 }
 
+// newestDay is how many prompts were last sent on the newest day any was,
+// and that day's name: today, yesterday or its date. It is worked out
+// again only as the history or the day changes.
+func (s *settingsWindow) newestDay(now time.Time) (int, string) {
+	d := &s.historyDay
+	y, m, dd := now.Date()
+	today := time.Date(y, m, dd, 0, 0, 0, 0, now.Location())
+	if gen := s.a.history.Gen(); d.gen != gen || !d.today.Equal(today) {
+		*d = dayCount{gen: gen, today: today}
+		var newest time.Time
+		for _, e := range s.a.history.Entries() {
+			y, m, dd := time.Unix(e.Last, 0).In(now.Location()).Date()
+			switch day := time.Date(y, m, dd, 0, 0, 0, 0, now.Location()); {
+			case day.After(newest):
+				newest, d.n = day, 1
+			case day.Equal(newest):
+				d.n++
+			}
+		}
+		switch {
+		case d.n == 0:
+		case newest.Equal(today):
+			d.name = "today"
+		case newest.Equal(today.AddDate(0, 0, -1)):
+			d.name = "yesterday"
+		case newest.Year() == today.Year():
+			d.name = "on " + newest.Format("Jan 2")
+		default:
+			d.name = "on " + newest.Format("Jan 2, 2006")
+		}
+	}
+	return d.n, d.name
+}
+
+// dayCount is what newestDay worked out, as of the history's gen and the
+// day.
+type dayCount struct {
+	gen   uint64
+	today time.Time
+	n     int
+	name  string
+}
+
 // agentSetting is the row of an agent on the Agent History page: its
 // dot, dimmed when it is not read or not on this Mac, its name and where
-// it reads, the prompts it gave or that its files were not found, and
-// its switch, which agentSetting reports changed.
-func agentSetting(c *ui.Context, src history.Source, n int, found bool, on *bool, first bool) bool {
+// it reads, the prompts it gave or that its files were not found, a way
+// to where, in the Finder, and its switch, which agentSetting reports
+// changed.
+func agentSetting(c *ui.Context, src history.Source, n int, found bool, where string, on *bool, first bool) bool {
 	t := c.Theme()
 	row := ui.Row(c).Padding(9, 14).Gap(12).AlignItems(ui.Center).MinHeight(44)
 	if !first {
@@ -218,6 +287,20 @@ func agentSetting(c *ui.Context, src history.Source, n int, found bool, on *bool
 			caption(c, "Not found").SingleLine().Shrink(0).Padding(1, 6).Radius(5).Border(0.5, t.Text.Alpha(0.14)).
 				Tooltip("Nothing at " + src.Where + ": this agent isn’t used on this Mac, or keeps no history there.")
 		}
+		// The Finder's way, in a place of its own so that the switches
+		// and counts line up, and only where there is something to show.
+		ui.Box(c).Size(26, 26).Center().Shrink(0).Children(func() {
+			if where == "" {
+				return
+			}
+			label := "Show " + src.Name + "’s History in Finder"
+			if !found {
+				label = "Show Where " + src.Name + " Keeps Its History in Finder"
+			}
+			if iconButton(c, iconFile, label).Clicked() {
+				showInFinder(where)
+			}
+		})
 		changed = ui.Switch(c, on).Label("Read " + src.Name).Changed()
 	})
 	return changed

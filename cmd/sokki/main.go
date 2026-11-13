@@ -43,8 +43,10 @@ type app struct {
 	history *history.Store
 	// scanning is set while the history's sources are read.
 	scanning atomic.Bool
-	// lastRead is what the last reading the person asked for found.
-	lastRead historyRead
+	// lastRead is what the last reading the person asked for found, and
+	// readAsked is set from the asking until the reading ends.
+	lastRead  historyRead
+	readAsked atomic.Bool
 	// historyHome is where the agents keep their history, "" for the
 	// home folder; tests have their own.
 	historyHome string
@@ -421,30 +423,42 @@ func (a *app) scanHistory() { a.readHistory(false) }
 func (a *app) readHistoryNow() { a.readHistory(true) }
 
 // historyRead is what a reading the person asked for found: how many
-// prompts are new. Settings says so until until, which the first frame
-// after the reading sets, as the reading is fresh.
+// prompts are new, and when. Settings says so until until, which the
+// first frame after the reading sets, as the reading is fresh: a reading
+// Settings did not show in time says nothing later.
 type historyRead struct {
 	found int
+	at    time.Time
 	fresh bool
 	until time.Time
 }
 
 func (a *app) readHistory(asked bool) {
+	if asked {
+		// Asked as a reading runs, that one answers.
+		a.readAsked.Store(true)
+	}
 	if !a.scanning.CompareAndSwap(false, true) {
 		return
 	}
-	a.post(a.settings.invalidate) // which says it reads
+	a.post(func() { // which say it reads
+		a.settings.invalidate()
+		a.palette.redraw()
+	})
 	go func() {
-		defer a.scanning.Store(false)
 		gen := a.history.Gen()
 		n := a.history.Scan(a.historyEnv())
 		changed := a.history.Gen() != gen
+		// Done before the frame it posts, which would show it reading on.
+		a.scanning.Store(false)
 		a.post(func() {
-			if asked {
-				a.lastRead = historyRead{found: n, fresh: true}
+			if a.readAsked.Swap(false) {
+				a.lastRead = historyRead{found: n, at: time.Now(), fresh: true}
 			}
 			if changed {
 				a.palette.invalidate()
+			} else {
+				a.palette.redraw()
 			}
 			if n > 0 {
 				a.palette.arrivedNote(n)

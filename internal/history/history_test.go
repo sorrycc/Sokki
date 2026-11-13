@@ -217,10 +217,20 @@ func TestSources(t *testing.T) {
 	if s := Open(t.TempDir()); !s.Found("claude") {
 		t.Error("not found before a scan")
 	}
-	empty := Open(t.TempDir())
-	empty.Scan(Env{Home: t.TempDir()})
+	if w := s.Where("claude"); w != filepath.Join(home, ".claude", "history.jsonl") {
+		t.Errorf("claude where %q", w)
+	}
+	empty, bare := Open(t.TempDir()), t.TempDir()
+	os.MkdirAll(filepath.Join(bare, ".qoder", "projects"), 0o755)
+	empty.Scan(Env{Home: bare})
 	if empty.Found("claude") || empty.Found("aider") {
 		t.Error("found in an empty home")
+	}
+	if w := empty.Where("qoder"); w != filepath.Join(bare, ".qoder", "projects") {
+		t.Errorf("qoder where %q", w)
+	}
+	if w := empty.Where("claude") + empty.Where("aider"); w != "" {
+		t.Errorf("where %q", w)
 	}
 
 	// A second scan reads only what was added.

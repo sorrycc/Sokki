@@ -32,13 +32,20 @@ such file: Accessibility capture of their input fields is left for later.
 Scans run off the main thread (`app.scanHistory`, one at a time): at
 launch, every 2 minutes, as the palette shows, from **Read Now**, the menu
 and `sokki history import`. New prompts re-filter the palette, its choice
-kept, and fade into its list, the footer saying how many came in. A
-scan that found nothing does not write `history.json`. **Read Now** and
-the menu's **Read Agents Now** say in Settings, for 4 seconds, how many
-prompts were new, or that the history is up to date. Each scan notes
-which agents' files exist (`Source.files`, globbed), and Settings marks
-the others **Not found**, with a ring for a dot; a source not found is
-not read.
+kept, and fade into its list, the footer saying how many came in. The
+fade is drawn by hand (`palette.arriving`: opacity, then an accent wash
+over 900 ms, frame by frame): MyGo's `List` (v0.5.5) builds each row in a
+keyed box born with it, so a row's own Enter transition never plays. A
+row shown again with `⌘Z` fades in the same way. A scan that found
+nothing does not write `history.json`. **Read Now** and the menu's **Read
+Agents Now** say in Settings, for 4 seconds, how many prompts were new, or
+that the history is up to date; asked while a scan runs, that scan
+answers, and a reading Settings did not show within those seconds says
+nothing later. Each scan notes which agents' files exist (`Source.files`,
+globbed) and what to show in the Finder for each (`Store.Where`: the file
+changed last, or for one not found the nearest folder of it short of the
+home folder), and Settings marks the others **Not found**, with a ring for
+a dot; a source not found is not read.
 
 ## Library
 
@@ -124,7 +131,13 @@ of the main thread, from 12.
   search marks every place its words are found in the text
   (`Query.Ranges`) and scrolls the preview to the first, three lines
   above it: found by shaping the text before it at the preview's width.
-  Agent colors have a light and a dark hue.
+  Agent colors have a light and a dark hue. A hairline under the
+  preview's head shows once its text scrolls under it.
+- **Empty**: History with nothing to list says why, in this order: a
+  scan runs, every agent is off, every prompt is hidden, no agent was
+  found, or nothing was sent yet, each with **History Settings…**. A
+  search of History that finds nothing offers **Search Everything**
+  (`⌘1`).
 - **Keys**: `↵` inserts without sending, so the prompt can be changed in
   the agent; `⌥↵` inserts and presses Return; `⇥` edits it in the palette
   first (`⌘↵` inserts, `⌥⌘↵` inserts and sends, the original kept,
@@ -140,8 +153,11 @@ prompt in an agent half-written. Return for `⌥↵` follows the paste after
 ## Elsewhere
 
 - **Settings → Agent History**: a summary of the prompts and the agents
-  they came from, when they were read or that they are being read, with
-  **Read Now**; the agents with their dot, a switch and their counts; the least length and the texts to
+  they came from (the agent's name when one), how many were last sent on
+  the newest day ("12 today", "3 yesterday", "5 on Nov 10"), when they
+  were read or that they are being read, with **Read Now**; the agents
+  with their dot, their counts or **Not found**, a folder button that
+  shows their file in the Finder, and a switch; the least length and the texts to
   leave out (applied with **Apply**, not as typed), **Read Everything
   Again…** and **Clear History…**.
 - **Insights** counts insertions of history prompts by agent (`usage.Event.Agent`),
@@ -155,7 +171,10 @@ prompt in an agent half-written. Return for `⌥↵` follows the paste after
 
 - Hidden rows sliding out of the palette's list: MyGo's `List` (v0.5.5)
   runs neither the Exit nor the Position transitions of its rows, so a
-  row hidden with `⌘⌫` goes at once.
+  row hidden with `⌘⌫` goes at once, and rows below a new one jump
+  rather than slide.
+- Feedback for the menu's **Read Agents Now** while neither Settings nor
+  the palette shows.
 - Accessibility capture of agents without a history file (ChatGPT, Claude
   desktop, web apps).
 - A boost for the project or the agent in front: the app in front rarely

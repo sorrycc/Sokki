@@ -24,19 +24,18 @@ The update window shows the section of the version it offers: every release need
 - Insights counts the history prompts you inserted by agent.
 - **Agent History** in the menu bar menu reads the agents now or opens its settings.
 - `sokki history` searches, shows, copies and hides history prompts, and switches agents.
-- Each agent has a color dot in palette rows, the preview and **Settings → Agent History**.
-- The preview of a history prompt lists every agent it was sent in, and when it was first sent.
-- Prompts read while the palette is open fade into the list, and the chosen row stays chosen.
-- Text edited with `⇥` is marked **Edited**, with **Revert** to start over.
-- **Settings → Agent History** sums up the prompts by agent and shows when it is reading them.
-- The palette stays quick over a large history as new prompts come in or you insert one.
-- **Read Now** says for a moment how many new prompts it found, or that history is up to date.
-- The palette's footer says how many new prompts came in while it was open.
-- The **History** scope lists prompts under **Today**, **Yesterday** and **Earlier** before you search.
-- **Settings → Agent History** marks agents whose history isn't on this Mac as **Not found**.
+- Each agent has its own color dot, for light and dark mode, in palette rows, the preview and Settings.
+- The preview of a history prompt lists every agent it went to and when it was first sent.
 - The preview highlights every place your search matched and scrolls to the first one.
-- Agent colors are tuned for light and dark mode.
-- Saving a large history no longer pauses the app.
+- The **History** scope lists prompts under **Today**, **Yesterday** and **Earlier** before you search.
+- Prompts read while the palette is open fade into the list, and its footer says how many came in.
+- When the **History** scope is empty, it says why: reading, no agents found, all off or all hidden.
+- Text edited with `⇥` is marked **Edited**, with **Revert** to start over.
+- **Settings → Agent History** sums up your prompts, with how many came in on the newest day.
+- **Read Now** shows that it is reading, then how many new prompts it found.
+- **Settings → Agent History** marks agents whose history isn't on this Mac as **Not found**.
+- The folder button by an agent in **Settings → Agent History** shows its history file in Finder.
+- The palette stays quick over a large history, and saving the history never pauses the app.
 
 ## 0.3.0
 
