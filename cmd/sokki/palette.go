@@ -388,9 +388,17 @@ func (p *palette) searchView(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Padding(14, 18).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Icon(c, iconSearch).FontSize(19).TextColor(t.TextMuted)
-		if ui.TextInputBase(c, &p.query).Bind(&p.input).Grow(1).FontSize(19).
-			Placeholder(searchHelp(p.scope)).Label("Search").Changed() {
+		// The focused search takes a plain Enter as its submit before
+		// the shortcut in searchKeys sees it, so the submit inserts here.
+		search := ui.TextInputBase(c, &p.query).Bind(&p.input).Grow(1).FontSize(19).
+			Placeholder(searchHelp(p.scope)).Label("Search")
+		if search.Changed() {
 			p.filter()
+		}
+		if search.Submitted() {
+			if r, ok := p.selected(); ok {
+				p.commit(r, false)
+			}
 		}
 		if p.query != "" {
 			caption(c, plural(len(p.results), "result", "results")).FontFeatures("tnum").SingleLine()
@@ -570,8 +578,18 @@ func (p *palette) row(c *ui.Context, i int) {
 		}
 		triggerCap(c, m, chosen, triggerMarks).Shrink(0).MaxWidth(110).Ellipsis("…")
 	})
-	if row.Clicked() {
-		p.commit(r, false)
+	p.rowClicks(row, i)
+}
+
+// rowClicks makes a click on row i choose it and a double click insert
+// it, the search keeping the keyboard.
+func (p *palette) rowClicks(row ui.Element, i int) {
+	switch {
+	case row.DoubleClicked():
+		p.commit(p.results[i], false)
+	case row.Clicked():
+		p.choose(i)
+		p.input.Focus()
 	}
 }
 

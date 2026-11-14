@@ -16,6 +16,8 @@ The update window shows the section of the version it offers: every release need
 - The palette has an **All · Matches · History** bar, also on `⌘1`, `⌘2` and `⌘3`.
 - `↵` inserts a prompt for you to change, and `⌥↵` inserts it and presses Return to send it.
 - `⇥` in the palette edits the chosen text before inserting it.
+- `↵` in the palette inserts the chosen result again while you type in the search.
+- A click in the palette chooses a result, and a double click inserts it.
 - `⌘S` saves a history prompt as a prompt of your own, and `⌘⌫` hides it, with `⌘Z` to undo.
 - Text with line breaks inserted from the palette is pasted, so an agent doesn't send it early.
 - **Settings → Agent History** turns each agent on or off and sets which prompts to leave out.

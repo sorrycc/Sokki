@@ -474,6 +474,65 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	}
 }
 
+// Enter in the palette's focused search inserts the chosen match: the
+// search takes a plain Enter (and Shift+Enter) as its submit before the
+// window's shortcut sees it. The match replaces with nothing, so the
+// insert posts no keys.
+func TestPaletteEnterInsertsFromSearch(t *testing.T) {
+	for _, mods := range []ui.Modifiers{0, ui.Shift} {
+		a := testApp(t)
+		a.store.Add(model.Match{Trigger: ":empty", Replace: "", Enabled: true})
+		p := a.palette
+		p.query = ":empty"
+		p.filter()
+		if len(p.results) != 1 || p.results[0].m.Trigger != ":empty" {
+			t.Fatalf("results %+v", p.results)
+		}
+		tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+		p.input.Focus()
+		tt.Frame()
+		tt.Key(mods, ui.KeyEnter)
+		tt.Frame()
+		if _, ok := a.recency.Snapshot()[":empty"]; !ok {
+			t.Fatalf("Enter (mods %v) in the search did not insert", mods)
+		}
+	}
+}
+
+// A click on a palette row chooses it, and a double click inserts it.
+func TestPaletteClickChoosesDoubleClickInserts(t *testing.T) {
+	a := testApp(t)
+	a.store.Add(model.Match{Trigger: ":empty", Replace: "", Enabled: true})
+	p := a.palette
+	p.query = ""
+	p.filter()
+	i := slices.IndexFunc(p.results, func(r result) bool { return r.m.Trigger == ":empty" })
+	if i <= 0 {
+		t.Fatalf(":empty at %d in %+v", i, p.results)
+	}
+	tt := ui.NewTester(p.view, paletteWidth, paletteHeight)
+	if err := tt.Click(":empty"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if p.chosen != i {
+		t.Fatalf("chosen %d, want %d", p.chosen, i)
+	}
+	if _, ok := a.recency.Snapshot()[":empty"]; ok {
+		t.Fatal("a click inserted")
+	}
+	if !tt.Focused("Search") {
+		t.Fatal("the search lost the keyboard")
+	}
+	if err := tt.Click(":empty"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := a.recency.Snapshot()[":empty"]; !ok {
+		t.Fatal("a double click did not insert")
+	}
+}
+
 func TestMatchesDetail(t *testing.T) {
 	a := testApp(t)
 	tt := ui.NewTester(a.settings.view, 780, 560)

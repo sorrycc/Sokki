@@ -258,9 +258,7 @@ func (p *palette) entryRow(c *ui.Context, i int) {
 		})
 		agentCap(c, e, chosen).Shrink(0).MaxWidth(120).Ellipsis("…")
 	})
-	if row.Clicked() {
-		p.commit(r, false)
-	}
+	p.rowClicks(row, i)
 }
 
 // entryDetail is the line under a prompt of the history: its project,
