@@ -474,6 +474,46 @@ func TestPaletteFiltersAndRanks(t *testing.T) {
 	}
 }
 
+// An exact match ranks above a prompt sent far more often that the query
+// matches only fuzzily, and letters strewn over a long prompt match none.
+func TestPaletteExactFirst(t *testing.T) {
+	a := testApp(t)
+	now := time.Now()
+	var items []history.Item
+	for i := range 30 {
+		items = append(items, history.Item{Source: "codex", Text: "Read ~/Downloads/qoder-feature-cleanup.md and tell me what to do", Time: now.Add(-time.Duration(i) * time.Minute)})
+	}
+	items = append(items,
+		history.Item{Source: "claude", Text: "refact the README.md", Time: now.AddDate(0, -2, 0)},
+		history.Item{Source: "codex", Text: "Rename the field and fix every caller", Time: now},
+	)
+	a.history.Import(items, nil)
+	p := a.palette
+	p.query = "refact"
+	p.filter()
+	if len(p.results) != 1 || p.results[0].title() != "refact the README.md" {
+		t.Fatalf("refact: %q", titles(p.results))
+	}
+	p.query = "rdme"
+	p.filter()
+	if len(p.results) != 1 || p.results[0].title() != "refact the README.md" {
+		t.Fatalf("fuzzy: %q", titles(p.results))
+	}
+	p.query = "readme refact"
+	p.filter()
+	if len(p.results) != 1 {
+		t.Fatalf("any order: %q", titles(p.results))
+	}
+}
+
+func titles(rs []result) []string {
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.title()
+	}
+	return out
+}
+
 // Enter in the palette's focused search inserts the chosen match: the
 // search takes a plain Enter (and Shift+Enter) as its submit before the
 // window's shortcut sees it. The match replaces with nothing, so the

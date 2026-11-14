@@ -320,7 +320,7 @@ func (a *app) ctlMatches(g args) []map[string]any {
 			continue
 		}
 		if !q.Empty() {
-			d := search.NewDoc(m.Trigger, m.Label, m.Replace, []string{"sokki", m.SourceFile}, nil)
+			d := search.NewDoc(m.Trigger, m.Title(), m.Replace, []string{"sokki", m.SourceFile}, nil)
 			if _, ok := q.Score(&d); !ok {
 				continue
 			}

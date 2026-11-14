@@ -1,18 +1,19 @@
 // Package search scores how well a query fits a match or a prompt of the
 // history, for the palette and the sokki command: each word of the query
-// must be found in the trigger, the title or the text, at the start of a
-// word scoring more, and a single word may also match a trigger or a
-// title fuzzily, its characters in order. "@codex" keeps what was sent in
+// must be found in the trigger, the title or the text, in any order, an
+// exact trigger or title first, a whole word or the start of one scoring
+// more, and words close together more still. A single word found nowhere
+// may also match a trigger or a title fuzzily, its characters in order
+// and close together, ranked below every exact match. "@codex" keeps what was sent in
 // an agent, "#sokki" what was sent in a project.
 package search
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"sokki/internal/engine"
 )
 
 // Query is a parsed query.
@@ -121,109 +122,181 @@ func Mask(s string) uint64 {
 	return m
 }
 
+// The tiers of a fit, worst first: a doc of a better tier ranks first,
+// however much less it was used.
+const (
+	TierFuzzy         = iota // its characters in order in the trigger or title
+	TierBody                 // a word found only in the text
+	TierTitle                // each word in the trigger or title, some inside a word
+	TierWord                 // each word at the start of one of the trigger's or title's
+	TierTitleStart           // the title is, or starts with, the query's words
+	TierTriggerPrefix        // the trigger starts with a word
+	TierTrigger              // the trigger is a word
+)
+
+// Fit is how well a query fits a doc: its tier, then its score within
+// the tier.
+type Fit struct{ Tier, Score int }
+
+func (f Fit) better(g Fit) bool { return f.Tier > g.Tier || (f.Tier == g.Tier && f.Score > g.Score) }
+
 // Score returns how well q fits d, and whether it does at all.
-func (q Query) Score(d *Doc) (int, bool) {
+func (q Query) Score(d *Doc) (Fit, bool) {
 	for _, a := range q.Agents {
 		if !strings.Contains(d.agents, a) {
-			return 0, false
+			return Fit{}, false
 		}
 	}
 	for _, p := range q.Projects {
 		if !strings.Contains(d.projects, p) {
-			return 0, false
+			return Fit{}, false
 		}
 	}
 	if len(q.Words) == 0 {
-		return 0, true
+		return Fit{}, true
 	}
 	if d.mask&q.mask != q.mask {
-		return 0, false
+		return Fit{}, false
 	}
-	total := 0
+	fit := Fit{Tier: TierTrigger}
 	for _, w := range q.Words {
-		s := wordScore(w, d)
-		if s == 0 {
+		f := wordFit(w, d)
+		if f.Score == 0 {
 			if q.fuzzy == nil {
-				return 0, false
+				return Fit{}, false
 			}
-			s1, ok1 := engine.FuzzyScoreFolded(q.fuzzy, d.ftrigger)
-			s2, ok2 := engine.FuzzyScoreFolded(q.fuzzy, d.ftitle)
+			s1, _, ok1 := fuzzy(q.fuzzy, d.ftrigger)
+			s2, _, ok2 := fuzzy(q.fuzzy, d.ftitle)
 			if !ok1 && !ok2 {
-				return 0, false
+				return Fit{}, false
 			}
-			return max(s1, s2), true
+			return Fit{TierFuzzy, max(s1, s2)}, true
 		}
-		total += s
+		fit.Tier = min(fit.Tier, f.Tier)
+		fit.Score += f.Score
 	}
+	phrase := strings.Join(q.Words, " ")
 	if len(q.Words) > 1 {
-		phrase := strings.Join(q.Words, " ")
 		switch {
 		case strings.Contains(d.title, phrase):
-			total += 10
+			fit.Score += 10
 		case strings.Contains(d.body, phrase):
-			total += 5
+			fit.Score += 5
+		default:
+			fit.Score += max(near(d.title, q.Words), near(d.body, q.Words))
 		}
 	}
 	if strings.HasPrefix(d.title, q.Words[0]) {
-		total += 8
+		fit.Score += 8
 	}
-	return total, true
+	if strings.HasPrefix(d.title, phrase) && atWordEnd(d.title, len(phrase)) {
+		fit.Tier = max(fit.Tier, TierTitleStart)
+		if d.title == phrase {
+			fit.Score += 10
+		}
+	}
+	return fit, true
 }
 
-// wordScore scores where w is found in d, 0 for nowhere.
-func wordScore(w string, d *Doc) int {
+// near scores how close together words are found in s, apart: more
+// when in the order typed, 0 when far apart or not all there.
+func near(s string, words []string) int {
+	first, last, size := len(s), 0, 0
+	ordered, prev := true, -1
+	for _, w := range words {
+		i, _, _ := find(s, w)
+		if i < 0 {
+			return 0
+		}
+		ordered = ordered && i > prev
+		prev = i
+		first, last = min(first, i), max(last, i+len(w))
+		size += len(w)
+	}
+	// A few short words between each two.
+	if last-first > size+16*(len(words)-1) {
+		return 0
+	}
+	if ordered {
+		return 6
+	}
+	return 4
+}
+
+// wordFit is where w is found in d, its score 0 for nowhere.
+func wordFit(w string, d *Doc) Fit {
 	n := min(utf8.RuneCountInString(w), 20)
 	// ":sig" is found as "sig" too.
 	bare := strings.TrimLeftFunc(d.trigger, func(r rune) bool { return unicode.IsPunct(r) || unicode.IsSymbol(r) })
 	switch {
 	case d.trigger == w || (bare != "" && bare == w):
-		return 40 + n
+		return Fit{TierTrigger, 40 + n}
 	case d.trigger != "" && (strings.HasPrefix(d.trigger, w) || (bare != "" && strings.HasPrefix(bare, w))):
-		return 25 + n
+		return Fit{TierTriggerPrefix, 25 + n}
 	}
-	best := 0
-	if found, start := find(d.trigger, w); found {
-		best = 12 + n
+	var best Fit
+	if at, start, whole := find(d.trigger, w); at >= 0 {
+		best = Fit{TierTitle, 12 + n}
 		if start {
-			best += 2
+			best = Fit{TierWord, 14 + n}
+		}
+		if whole {
+			best.Score += 3
 		}
 	}
-	if found, start := find(d.title, w); found {
-		s := 7 + n
+	if at, start, whole := find(d.title, w); at >= 0 {
+		f := Fit{TierTitle, 7 + n}
 		if start {
-			s = 12 + n
+			f = Fit{TierWord, 12 + n}
 		}
-		best = max(best, s)
+		if whole {
+			f.Score += 3
+		}
+		if f.better(best) {
+			best = f
+		}
 	}
-	if best == 0 {
-		if found, start := find(d.body, w); found {
-			best = 3 + n
+	if best.Score == 0 {
+		if at, start, whole := find(d.body, w); at >= 0 {
+			best = Fit{TierBody, 3 + n}
 			if start {
-				best = 6 + n
+				best.Score = 6 + n
+			}
+			if whole {
+				best.Score += 2
 			}
 		}
 	}
 	return best
 }
 
-// find reports whether w is in s, and whether at the start of a word
-// there.
-func find(s, w string) (found, start bool) {
+// find returns where w is in s, by byte, or -1, and whether at the start
+// of a word there and as a whole word: of its first few, the first
+// whole word, else the first at a word's start, else the first.
+func find(s, w string) (at int, start, whole bool) {
+	at = -1
 	from := 0
 	for tries := 0; tries < 8; tries++ {
 		i := strings.Index(s[from:], w)
 		if i < 0 {
-			return found, false
+			break
 		}
 		i += from
-		found = true
+		if at < 0 {
+			at = i
+		}
 		if atWordStart(s, i, w) {
-			return true, true
+			if atWordEnd(s, i+len(w)) {
+				return i, true, true
+			}
+			if !start {
+				at, start = i, true
+			}
 		}
 		_, size := utf8.DecodeRuneInString(s[i:])
 		from = i + size
 	}
-	return found, false
+	return at, start, false
 }
 
 // atWordStart reports whether s has a word starting at byte i: the first
@@ -234,11 +307,111 @@ func atWordStart(s string, i int, w string) bool {
 		return true
 	}
 	first, _ := utf8.DecodeRuneInString(w)
-	if unicode.In(first, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
+	if spaceless(first) {
 		return true
 	}
 	prev, _ := utf8.DecodeLastRuneInString(s[:i])
 	return !unicode.IsLetter(prev) && !unicode.IsDigit(prev)
+}
+
+// atWordEnd reports whether a word of s ends at byte j: the end, or
+// before a rune that is no letter or digit, or one of a script without
+// spaces.
+func atWordEnd(s string, j int) bool {
+	if j >= len(s) {
+		return true
+	}
+	last, _ := utf8.DecodeLastRuneInString(s[:j])
+	next, _ := utf8.DecodeRuneInString(s[j:])
+	return spaceless(last) || spaceless(next) || (!unicode.IsLetter(next) && !unicode.IsDigit(next))
+}
+
+// spaceless reports whether r is of a script written without spaces.
+func spaceless(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
+}
+
+// fuzzyGap is how many runes a compact fuzzy match skips at most between
+// two of its runes, and fuzzyRunes how much of a title it searches.
+const (
+	fuzzyGap   = 2
+	fuzzyRunes = 200
+	// fuzzyStarts is how many places of its first rune it tries.
+	fuzzyStarts = 4
+)
+
+// fuzzy matches the folded q's runes in order in the folded t, tightly:
+// each right after the one before or at the start of a word, as "gc"
+// does "git commit", or each a few runes at most after the one before,
+// as "rvw" does "review". Letters strewn over a long title don't match.
+// It returns the score, which runes of t matched, and whether q did.
+func fuzzy(q, t []rune) (int, []int, bool) {
+	if len(q) == 0 {
+		return 0, nil, true
+	}
+	t = t[:min(len(t), fuzzyRunes)]
+	best, at := 0, make([]int, len(q))
+	var pos []int
+	for _, compact := range []bool{false, true} {
+		tries := 0
+		for s := 0; s < len(t) && tries < fuzzyStarts; s++ {
+			if t[s] != q[0] || (!compact && !wordStart(t, s)) {
+				continue
+			}
+			tries++
+			if score, ok := fuzzyFrom(q, t, s, compact, at); ok && score > best {
+				best, pos = score, slices.Clone(at)
+			}
+		}
+	}
+	return best, pos, pos != nil
+}
+
+// fuzzyFrom matches q in t from rune s on, as fuzzy does, into at.
+func fuzzyFrom(q, t []rune, s int, compact bool, at []int) (int, bool) {
+	at[0] = s
+	for qi := 1; qi < len(q); qi++ {
+		prev, next := at[qi-1], -1
+		if prev+1 < len(t) && t[prev+1] == q[qi] {
+			next = prev + 1
+		} else {
+			end := len(t)
+			if compact {
+				end = min(end, prev+2+fuzzyGap)
+			}
+			for ti := prev + 1; ti < end; ti++ {
+				if t[ti] == q[qi] && (compact || wordStart(t, ti)) {
+					next = ti
+					break
+				}
+			}
+		}
+		if next < 0 {
+			return 0, false
+		}
+		at[qi] = next
+	}
+	score, run := 0, 0
+	for i, p := range at {
+		if i > 0 && p == at[i-1]+1 {
+			run++
+		} else {
+			run = 1
+		}
+		score += 1 + run
+		if wordStart(t, p) {
+			score += 2
+		}
+	}
+	if s == 0 {
+		score += 5
+	}
+	return score, true
+}
+
+// wordStart reports whether a word of t starts at rune i, as atWordStart.
+func wordStart(t []rune, i int) bool {
+	return i == 0 || spaceless(t[i]) || (!unicode.IsLetter(t[i-1]) && !unicode.IsDigit(t[i-1]))
 }
 
 // Ranges returns the byte ranges of s where the query's words are found,
@@ -289,7 +462,7 @@ func (q Query) Marks(s string) []int {
 	}
 	seen := map[int]bool{}
 	for _, w := range q.Words {
-		i := strings.Index(f, w)
+		i, _, _ := find(f, w)
 		if i < 0 {
 			continue
 		}
@@ -300,7 +473,8 @@ func (q Query) Marks(s string) []int {
 	}
 	if len(seen) == 0 {
 		if q.fuzzy != nil {
-			return engine.FuzzyPositions(q.fuzzy, []rune(f))
+			_, pos, _ := fuzzy(q.fuzzy, []rune(f))
+			return pos
 		}
 		return nil
 	}

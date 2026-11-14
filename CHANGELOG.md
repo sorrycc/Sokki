@@ -18,6 +18,9 @@ The update window shows the section of the version it offers: every release need
 - `⇥` in the palette edits the chosen text before inserting it.
 - `↵` in the palette inserts the chosen result again while you type in the search.
 - A click in the palette chooses a result, and a double click inserts it.
+- Palette search lists exact matches first, a whole word ahead of part of one, whatever you use most.
+- Scattered letters in a long prompt no longer match: fuzzy search wants them close or at word starts.
+- Several words you search find a prompt in any order, ranked higher when they are close together.
 - `⌘S` saves a history prompt as a prompt of your own, and `⌘⌫` hides it, with `⌘Z` to undo.
 - Text with line breaks inserted from the palette is pasted, so an agent doesn't send it early.
 - **Settings → Agent History** turns each agent on or off and sets which prompts to leave out.

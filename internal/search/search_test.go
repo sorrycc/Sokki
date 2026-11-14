@@ -12,16 +12,16 @@ func TestScoreRanks(t *testing.T) {
 		"later":  NewDoc("", "Write tests", "Write tests, then review the diff at the end", []string{"codex"}, nil),
 		"zh":     NewDoc("", "用中文解释这个函数", "用中文解释这个函数", []string{"codex"}, nil),
 	}
-	score := func(q, name string) (int, bool) {
+	score := func(q, name string) (Fit, bool) {
 		d := docs[name]
 		return Parse(q).Score(&d)
 	}
-	if s, ok := score("sig", "sig"); !ok || s < 40 {
-		t.Fatalf("trigger prefix %d", s)
+	if s, ok := score("sig", "sig"); !ok || s.Tier != TierTrigger {
+		t.Fatalf("trigger %+v", s)
 	}
 	a, ok1 := score("review diff", "review")
 	b, ok2 := score("review diff", "later")
-	if !ok1 || !ok2 || a <= b {
+	if !ok1 || !ok2 || !a.better(b) {
 		t.Fatalf("title %d vs body %d", a, b)
 	}
 	if _, ok := score("review zzz", "review"); ok {
@@ -47,6 +47,50 @@ func TestScoreRanks(t *testing.T) {
 	}
 	if _, ok := score("#sok", "sig"); ok {
 		t.Fatal("project filter lets matches through")
+	}
+}
+
+// An exact match ranks above a fuzzy one, and letters strewn over a long
+// title match nothing.
+func TestScoreExactFirst(t *testing.T) {
+	read := NewDoc("", "Read ~/Downloads/qoder-feature-cleanup.md and tell me what to do", "", nil, nil)
+	refact := NewDoc("", "refact the README.md", "refact the README.md", nil, nil)
+	refactor := NewDoc("", "refactor the parser", "refactor the parser", nil, nil)
+	q := Parse("refact")
+	if f, ok := q.Score(&read); ok {
+		t.Fatalf("strewn letters match: %+v", f)
+	}
+	a, _ := q.Score(&refact)
+	b, _ := q.Score(&refactor)
+	if a.Tier != TierTitleStart || !a.better(b) {
+		t.Fatalf("whole word %+v vs prefix %+v", a, b)
+	}
+	if f, ok := Parse("readme refact").Score(&refact); !ok || f.Tier < TierWord {
+		t.Fatalf("words in any order %+v %v", f, ok)
+	}
+	fz, ok := Parse("rfct").Score(&refact)
+	if !ok || fz.Tier != TierFuzzy || !b.better(fz) {
+		t.Fatalf("fuzzy %+v %v", fz, ok)
+	}
+	gc := NewDoc("", "git commit all", "", nil, nil)
+	if _, ok := Parse("gca").Score(&gc); !ok {
+		t.Fatal("word starts")
+	}
+}
+
+// Words close together, in the order typed, score more than far apart.
+func TestScoreNear(t *testing.T) {
+	close := NewDoc("", "", "fix the flaky tests in the parser", nil, nil)
+	far := NewDoc("", "", "flaky runs of the build are worse than any slow test, so fix them in the parser", nil, nil)
+	q := Parse("flaky parser")
+	a, ok1 := q.Score(&close)
+	b, ok2 := q.Score(&far)
+	if !ok1 || !ok2 || !a.better(b) {
+		t.Fatalf("near %+v far %+v", a, b)
+	}
+	c, _ := Parse("parser flaky").Score(&close)
+	if !a.better(c) {
+		t.Fatalf("in order %+v out of order %+v", a, c)
 	}
 }
 

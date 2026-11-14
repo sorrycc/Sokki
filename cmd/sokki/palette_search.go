@@ -55,8 +55,10 @@ var scopeLabels = []string{"All", "Matches", "History"}
 type rowMarks struct{ title, trigger []int }
 
 type scored struct {
-	i    int // of the palette's docs
-	rank int
+	i int // of the palette's docs
+	// tier ranks first, how exactly the query fits; rank then, how well
+	// plus how much it was used.
+	tier, rank int
 	// frecency ranks what an empty query lists; last breaks ties.
 	frecency float64
 	last     int64
@@ -107,7 +109,7 @@ func (x *index) update(a *app) bool {
 		x.matches = a.store.Matches
 		x.matchDocs, x.matchKeys = make([]search.Doc, len(x.matches)), make([]string, len(x.matches))
 		for i, m := range x.matches {
-			x.matchDocs[i] = search.NewDoc(m.Trigger, m.Label, m.Replace, []string{"sokki", m.SourceFile}, nil)
+			x.matchDocs[i] = search.NewDoc(m.Trigger, m.Title(), m.Replace, []string{"sokki", m.SourceFile}, nil)
 			x.matchKeys[i] = history.Normalize(m.Replace)
 		}
 	}
@@ -165,9 +167,9 @@ func (x *index) weigh(uses map[string]history.MatchUse, now time.Time) {
 }
 
 // rank ranks the docs of x for q among those of scope, each of try's
-// indexes (all, for nil), into found: by how well they fit q plus how
-// often and lately they were used, or, for an empty query, by the
-// latter alone.
+// indexes (all, for nil), into found: by how exactly they fit q, then
+// how well plus how often and lately they were used, or, for an empty
+// query, by the latter alone.
 func (x *index) rank(q search.Query, scope int, try []scored, found []scored) []scored {
 	add := func(i int) {
 		isEntry := i >= len(x.matches)
@@ -177,12 +179,12 @@ func (x *index) rank(q search.Query, scope int, try []scored, found []scored) []
 		if !isEntry && !x.matches[i].Enabled {
 			return
 		}
-		s, ok := q.Score(&x.docs[i])
+		fit, ok := q.Score(&x.docs[i])
 		if !ok {
 			return
 		}
 		f := x.frecency[i]
-		found = append(found, scored{i: i, rank: 4*s + history.Boost(f), frecency: f, last: x.last[i]})
+		found = append(found, scored{i: i, tier: fit.Tier, rank: 4*fit.Score + history.Boost(f), frecency: f, last: x.last[i]})
 	}
 	if try != nil {
 		for _, s := range try {
@@ -195,6 +197,9 @@ func (x *index) rank(q search.Query, scope int, try []scored, found []scored) []
 	}
 	empty := len(q.Words) == 0
 	slices.SortFunc(found, func(a, b scored) int {
+		if !empty && a.tier != b.tier {
+			return b.tier - a.tier
+		}
 		if !empty && a.rank != b.rank {
 			return b.rank - a.rank
 		}
