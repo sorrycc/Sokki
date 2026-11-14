@@ -24,28 +24,39 @@ type editorWindow struct {
 	// headless leaves the window out, for tests that run the view alone.
 	headless bool
 
-	existing int64 // the match edited, 0 for a new one
-	trigger  string
-	replace  string
-	label    string
-	enabled  bool
-	file     string
-	extra    []string // files made here, not saved yet
+	matchDraft
+	extra []string // files made here, not saved yet
 
-	// orig is the match as the editor opened it, to tell an edit.
-	orig model.Match
 	// confirmDiscard asks whether to drop the edits on closing.
 	confirmDiscard bool
 
 	addingFile bool
 	newFile    string
 	newFileIn  ui.Handle
-	triggerIn  ui.Handle
-	replaceIn  ui.Handle
 
 	// verb is what the editor does, New, Edit or Duplicate, to a match
 	// or, while the trigger is empty, a prompt.
 	verb string
+}
+
+// matchDraft is a match as it is edited, in the editor window or in the
+// detail of the Matches page: its fields, where a variable goes in its
+// replacement, and the preview of its variables.
+type matchDraft struct {
+	existing int64 // the match edited, 0 for a new one
+	trigger  string
+	replace  string
+	label    string
+	enabled  bool
+	file     string
+
+	// orig is the match as editing began, or as last saved, to tell an
+	// edit.
+	orig model.Match
+
+	triggerIn ui.Handle
+	replaceIn ui.Handle
+
 	// selStart and selEnd are the selection of the replacement, in runes,
 	// as of when it last had the focus (selKnown), where a variable is
 	// inserted; caret, when caretSet, is where to put the caret next frame.
@@ -57,15 +68,48 @@ type editorWindow struct {
 	// previewText is the preview of previewOf, the replacement it was
 	// rendered for, kept while the replacement does not change.
 	previewOf, previewText string
+	// ranges are the variables of rangesOf, colored rangesIn, kept while
+	// neither changes.
+	rangesOf string
+	rangesIn ui.Color
+	ranges   []ui.TextRange
 }
 
-func (e *editorWindow) edit(m model.Match) {
-	e.existing = m.ID
-	e.trigger, e.replace, e.label, e.enabled = m.Trigger, m.Replace, m.Label, m.Enabled
-	e.file = m.SourceFile
-	if e.file == "" {
-		e.file = config.DefaultMatchFile
+// set takes m's fields, in default.yml when it names no file.
+func (d *matchDraft) set(m model.Match) {
+	d.existing = m.ID
+	d.trigger, d.replace, d.label, d.enabled = m.Trigger, m.Replace, m.Label, m.Enabled
+	d.file = m.SourceFile
+	if d.file == "" {
+		d.file = config.DefaultMatchFile
 	}
+}
+
+// begin starts editing the fields as they are.
+func (d *matchDraft) begin() {
+	d.selKnown, d.caretSet = false, false
+	d.previewOf = "\x00" // the clipboard may have changed: render again
+	d.orig = d.current()
+}
+
+// current is the match as edited.
+func (d *matchDraft) current() model.Match {
+	return model.Match{
+		ID: d.existing, Trigger: triggerOf(d.trigger), Replace: d.replace, Label: strings.TrimSpace(d.label), Enabled: d.enabled,
+		SourceFile: d.file,
+	}
+}
+
+// dirty reports whether the match was edited since editing began.
+func (d *matchDraft) dirty() bool {
+	return d.current() != d.orig
+}
+
+// isPrompt reports whether the match edited has no trigger: a prompt.
+func (d *matchDraft) isPrompt() bool { return triggerOf(d.trigger) == "" }
+
+func (e *editorWindow) edit(m model.Match) {
+	e.set(m)
 	e.open("Edit")
 }
 
@@ -95,26 +139,9 @@ func (e *editorWindow) compose(m model.Match) {
 // duplicate opens a new match with m's fields, to save under another
 // trigger.
 func (e *editorWindow) duplicate(m model.Match) {
+	e.set(m)
 	e.existing = 0
-	e.trigger, e.replace, e.label, e.enabled = m.Trigger, m.Replace, m.Label, m.Enabled
-	e.file = m.SourceFile
-	if e.file == "" {
-		e.file = config.DefaultMatchFile
-	}
 	e.open("Duplicate")
-}
-
-// current is the match as edited.
-func (e *editorWindow) current() model.Match {
-	return model.Match{
-		ID: e.existing, Trigger: triggerOf(e.trigger), Replace: e.replace, Label: strings.TrimSpace(e.label), Enabled: e.enabled,
-		SourceFile: e.file,
-	}
-}
-
-// dirty reports whether the match was edited since the editor opened.
-func (e *editorWindow) dirty() bool {
-	return e.current() != e.orig
 }
 
 // requestClose closes the editor, asking first when that drops edits.
@@ -130,9 +157,6 @@ func (e *editorWindow) requestClose() {
 	}
 }
 
-// isPrompt reports whether the match edited has no trigger: a prompt.
-func (e *editorWindow) isPrompt() bool { return triggerOf(e.trigger) == "" }
-
 // title is what the editor does, as "Edit Prompt", following the trigger
 // as it is typed or cleared.
 func (e *editorWindow) title() string {
@@ -145,9 +169,8 @@ func (e *editorWindow) title() string {
 func (e *editorWindow) open(verb string) {
 	e.addingFile, e.newFile, e.extra = false, "", nil
 	e.confirmDiscard = false
-	e.verb, e.selKnown, e.caretSet = verb, false, false
-	e.previewOf = "\x00" // the clipboard may have changed: render again
-	e.orig = e.current()
+	e.verb = verb
+	e.begin()
 	if e.headless {
 		return
 	}
@@ -212,16 +235,16 @@ const minTrigger = 2
 
 // triggerTooShort reports a trigger under minTrigger, but for one a
 // match had already, from its file. No trigger at all is a prompt's.
-func (e *editorWindow) triggerTooShort() bool {
-	trigger := triggerOf(e.trigger)
-	if trigger == "" || e.existing != 0 && trigger == e.orig.Trigger {
+func (d *matchDraft) triggerTooShort() bool {
+	trigger := triggerOf(d.trigger)
+	if trigger == "" || d.existing != 0 && trigger == d.orig.Trigger {
 		return false
 	}
 	return utf8.RuneCountInString(strings.TrimSpace(trigger)) < minTrigger
 }
 
-func (e *editorWindow) canSave() bool {
-	return !e.triggerTooShort() && e.replace != "" && e.current().Key() != ""
+func (d *matchDraft) canSave() bool {
+	return !d.triggerTooShort() && d.replace != "" && d.current().Key() != ""
 }
 
 func (e *editorWindow) save() {
@@ -297,19 +320,19 @@ func (e *editorWindow) commitNewFile() {
 
 // insert puts text in the replacement over its selection, or at its end
 // when it has not had the focus, and the caret after it.
-func (e *editorWindow) insert(text string) {
-	r := []rune(e.replace)
+func (d *matchDraft) insert(text string) {
+	r := []rune(d.replace)
 	start, end := len(r), len(r)
-	if e.selKnown {
-		start, end = min(max(0, e.selStart), len(r)), min(max(0, e.selEnd), len(r))
+	if d.selKnown {
+		start, end = min(max(0, d.selStart), len(r)), min(max(0, d.selEnd), len(r))
 		if start > end {
 			start, end = end, start
 		}
 	}
-	e.replace = string(r[:start]) + text + string(r[end:])
-	e.caret, e.caretSet = start+utf8.RuneCountInString(text), true
-	e.selStart, e.selEnd, e.selKnown = e.caret, e.caret, true
-	e.replaceIn.Focus()
+	d.replace = string(r[:start]) + text + string(r[end:])
+	d.caret, d.caretSet = start+utf8.RuneCountInString(text), true
+	d.selStart, d.selEnd, d.selKnown = d.caret, d.caret, true
+	d.replaceIn.Focus()
 }
 
 // variables are what the editor's Insert menu adds to the replacement.
@@ -321,12 +344,12 @@ var variables = []struct{ label, text string }{
 	{"Weekday (Sunday)", "{{date:EEEE}}"},
 }
 
-// conflict returns the other match with the key of the one being edited:
-// its trigger, or a prompt's title.
-func (e *editorWindow) conflict() (model.Match, bool) {
-	key := e.current().Key()
-	for _, m := range e.a.store.Matches {
-		if key != "" && m.Key() == key && m.ID != e.existing {
+// conflict returns the other match of matches with the key of the one
+// being edited: its trigger, or a prompt's title.
+func (d *matchDraft) conflict(matches []model.Match) (model.Match, bool) {
+	key := d.current().Key()
+	for _, m := range matches {
+		if key != "" && m.Key() == key && m.ID != d.existing {
 			return m, true
 		}
 	}
@@ -374,31 +397,15 @@ func (e *editorWindow) view(c *ui.Context) {
 						ui.TextInput(c, &e.label).Label("Label").Placeholder(placeholder)
 					}).Grow(1.4).Basis(0)
 				})
-				e.note(c)
+				e.note(c, e.a.store)
 
 				ui.Column(c).Gap(6).Grow(1).Shrink(1).Children(func() {
 					ui.Row(c).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, "Replacement").FontSize(12).FontWeight(600)
 						ui.Spacer(c)
-						ui.MenuButton(c, "Insert Variable", func(m *ui.Menu) {
-							for _, v := range variables {
-								if m.Item(v.label).Chosen() {
-									e.insert(v.text)
-								}
-							}
-						}).Label("Insert Variable")
+						e.insertMenu(c)
 					})
-					ta := ui.TextArea(c, &e.replace).Bind(&e.replaceIn).Label("Replacement").
-						Placeholder(replacePlaceholder(e.isPrompt())).
-						Font("monospace").Grow(1).MinHeight(96).TextRanges(variableRanges(c, e.replace)...)
-					if e.caretSet {
-						ta.SetTextSelection(e.caret, e.caret)
-						e.caretSet = false
-					}
-					if ta.Focused() {
-						e.selStart, e.selEnd = ta.TextSelection()
-						e.selKnown = true
-					}
+					e.replaceField(c).Grow(1).MinHeight(96)
 					if e.replace != "" {
 						caption(c, summary(e.replace)).FontFeatures("tnum").AlignSelf(ui.End)
 					}
@@ -473,27 +480,77 @@ func replacePlaceholder(prompt bool) string {
 	return "What the trigger types"
 }
 
+// insertMenu is the Insert Variable menu over the replacement.
+func (d *matchDraft) insertMenu(c *ui.Context) ui.Element {
+	return ui.MenuButton(c, "Insert Variable", func(m *ui.Menu) {
+		for _, v := range variables {
+			if m.Item(v.label).Chosen() {
+				d.insert(v.text)
+			}
+		}
+	}).Label("Insert Variable")
+}
+
+// replaceField is the field of the replacement, its variables in the
+// accent's color, which keeps where its selection was.
+func (d *matchDraft) replaceField(c *ui.Context) ui.Element {
+	if accent := c.Theme().Accent; d.rangesOf != d.replace || d.rangesIn != accent {
+		d.rangesOf, d.rangesIn, d.ranges = d.replace, accent, variableRanges(c, d.replace)
+	}
+	ta := ui.TextArea(c, &d.replace).Bind(&d.replaceIn).Label("Replacement").
+		Placeholder(replacePlaceholder(d.isPrompt())).Font("monospace").TextRanges(d.ranges...)
+	if d.caretSet {
+		ta.SetTextSelection(d.caret, d.caret)
+		d.caretSet = false
+	}
+	if ta.Focused() {
+		d.selStart, d.selEnd = ta.TextSelection()
+		d.selKnown = true
+	}
+	return ta
+}
+
+// previewed is the replacement as it will be typed now, rendered again
+// only as it changes: it reads the clipboard.
+func (d *matchDraft) previewed() string {
+	if d.previewOf != d.replace {
+		clip, _ := macos.PasteboardString()
+		d.previewOf, d.previewText = d.replace, engine.RenderPreview(d.replace, clip, time.Now())
+	}
+	return d.previewText
+}
+
+// problem is what keeps the match from being saved as it is, if
+// anything: another match with its key, or a trigger too short.
+func (d *matchDraft) problem(matches []model.Match) (string, bool) {
+	if m, ok := d.conflict(matches); ok {
+		what := "has this trigger."
+		if d.isPrompt() {
+			what = "has this title. Give this one a label."
+		}
+		return "Another match in " + m.SourceFile + " " + what, true
+	}
+	if d.triggerTooShort() && triggerOf(d.trigger) != ":" {
+		return "A trigger needs at least 2 characters, so that it doesn't expand by accident.", true
+	}
+	return "", false
+}
+
 // note is the line under the trigger and the label: what is wrong with
 // them, or what the match does. It fades in as it changes from one to
 // another, not as each key is typed.
-func (e *editorWindow) note(c *ui.Context) {
+func (d *matchDraft) note(c *ui.Context, store *config.Store) {
 	t := c.Theme()
 	icon, color, text := iconKeyboard, t.TextMuted, "Type the trigger anywhere and Sokki replaces it. Leave it empty for a prompt."
 	shortcut := ""
-	if m, ok := e.conflict(); ok {
-		what := "has this trigger."
-		if e.isPrompt() {
-			what = "has this title. Give this one a label."
-		}
-		icon, color, text = iconWarning, t.Warning, "Another match in "+m.SourceFile+" "+what
-	} else if e.triggerTooShort() && triggerOf(e.trigger) != ":" {
-		icon, color, text = iconWarning, t.Warning, "A trigger needs at least 2 characters, so that it doesn't expand by accident."
-	} else if e.isPrompt() {
+	if p, ok := d.problem(store.Matches); ok {
+		icon, color, text = iconWarning, t.Warning, p
+	} else if d.isPrompt() {
 		icon, text = iconPrompt, "No trigger: a prompt, inserted from the palette."
-		if title := e.current().Title(); e.label == "" && title != "" {
+		if title := d.current().Title(); d.label == "" && title != "" {
 			text = "No trigger: a prompt, in the palette as “" + truncate(title, 40) + "”"
 		}
-		shortcut = shortcutLabel(paletteOptions, e.a.store.Config.PaletteShortcut)
+		shortcut = shortcutLabel(paletteOptions, store.Config.PaletteShortcut)
 	}
 	c.Key(icon)
 	ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(-8, 0, 0, 0).Transition(fadeTransition).Children(func() {
@@ -508,13 +565,9 @@ func (e *editorWindow) note(c *ui.Context) {
 // preview shows the replacement as it will be typed now.
 func (e *editorWindow) preview(c *ui.Context) {
 	t := c.Theme()
-	if e.previewOf != e.replace {
-		clip, _ := macos.PasteboardString()
-		e.previewOf, e.previewText = e.replace, engine.RenderPreview(e.replace, clip, time.Now())
-	}
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Text(c, "Preview").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-		textPlate(c, e.previewText).MaxLines(6).Ellipsis("…")
+		textPlate(c, e.previewed()).MaxLines(6).Ellipsis("…")
 	})
 }
 

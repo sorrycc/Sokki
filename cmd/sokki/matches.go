@@ -11,8 +11,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"sokki/internal/config"
-	"sokki/internal/engine"
-	"sokki/internal/macos"
 	"sokki/internal/model"
 )
 
@@ -29,11 +27,17 @@ type matchList struct {
 	listState ui.ListState
 	listWidth float32 // of the list, beside the detail
 
-	// previewText is the preview of the match previewID, whose replacement
-	// was previewOf, kept while the choice stays.
-	previewID   int64
-	previewOf   string
-	previewText string
+	// draft is the chosen match as edited in the detail, saved a moment
+	// after the typing stops (autosave), as its field loses the focus, and
+	// as another match is chosen: saving writes the files, reloads them
+	// and the expander, so not at every key.
+	draft    matchDraft
+	autosave *time.Timer
+	// saved is whether the draft was saved since it was chosen, which the
+	// detail says until the next edit.
+	saved bool
+	// focused is whether a field of the detail had the focus last frame.
+	focused bool
 
 	shown []model.Match
 	// key is what shown was filtered for: the store's generation, the
@@ -136,7 +140,110 @@ func (l *matchList) prefill() string {
 	return config.DefaultMatchFile
 }
 
-func (l *matchList) edit(m model.Match) { l.a.editor.edit(m) }
+// edit opens the chosen match in the editor window, as edited here.
+func (l *matchList) edit(m model.Match) {
+	if l.draft.existing == m.ID {
+		l.commit()
+		m = l.draft.current()
+	}
+	l.a.editor.edit(m)
+}
+
+// focusReplacement puts the caret at the end of the chosen match's
+// replacement, to edit it.
+func (l *matchList) focusReplacement() {
+	if _, ok := l.selected(); ok {
+		l.draft.caret, l.draft.caretSet = utf8.RuneCountInString(l.draft.replace), true
+		l.draft.replaceIn.Focus()
+	}
+}
+
+// edited schedules the autosave of the draft, after the typing stops.
+func (l *matchList) edited() {
+	l.saved = false
+	if l.autosave == nil {
+		l.autosave = time.AfterFunc(autosaveDelay, func() { l.a.post(func() { l.commit() }) })
+		return
+	}
+	l.autosave.Reset(autosaveDelay)
+}
+
+// autosaveDelay is how long after the last key the draft is saved.
+const autosaveDelay = 600 * time.Millisecond
+
+// commit saves the draft, if edited, unless it can't be saved as it is:
+// a trigger too short, or the key of another match, which loading would
+// drop. It reports whether nothing is left unsaved.
+func (l *matchList) commit() bool {
+	d := &l.draft
+	if l.autosave != nil {
+		l.autosave.Stop()
+	}
+	if d.existing == 0 || !d.dirty() {
+		return true
+	}
+	if _, ok := l.a.store.Match(d.existing); !ok {
+		return true // deleted meanwhile
+	}
+	if _, bad := d.problem(l.a.store.Matches); bad || !d.canSave() {
+		return false
+	}
+	m := d.current()
+	l.a.store.Update(m)
+	d.orig, l.saved = m, true
+	return true
+}
+
+// follow has the draft follow the chosen match m: saving the draft of
+// the match chosen before, and taking m's fields, again as it changes
+// unedited, by another window or a reload.
+func (l *matchList) follow(c *ui.Context, m model.Match) {
+	d := &l.draft
+	if d.existing != m.ID {
+		l.leave(c)
+		d.set(m)
+		d.begin()
+		l.saved, l.focused = false, false
+		return
+	}
+	stored := m
+	if stored.SourceFile == "" {
+		stored.SourceFile = config.DefaultMatchFile
+	}
+	if stored == d.orig {
+		return
+	}
+	if d.dirty() {
+		d.orig = stored // saving still writes the edit over it
+		return
+	}
+	d.set(m)
+	d.orig = d.current()
+}
+
+// leave saves the draft as another match is chosen, and says so when it
+// can't, with a way back to it.
+func (l *matchList) leave(c *ui.Context) {
+	if l.commit() {
+		return
+	}
+	left := l.draft
+	why, _ := left.problem(l.a.store.Matches)
+	if why == "" {
+		why = "It needs a replacement."
+	}
+	c.ToastAction("Changes to "+matchTitle(left.orig)+" weren't saved. "+why, "Keep Editing", func() {
+		i := slices.IndexFunc(l.shown, func(x model.Match) bool { return x.ID == left.existing })
+		if i < 0 {
+			return
+		}
+		l.chosen = i
+		l.listState.ScrollIntoView(i)
+		l.draft = left
+		l.saved = false
+		l.draft.replaceIn.Focus()
+	})
+}
 
 func (l *matchList) newMatch(trigger string) {
 	l.a.editor.create(l.prefill(), trigger)
@@ -152,7 +259,12 @@ func (l *matchList) add() {
 	l.a.editor.compose(model.Match{SourceFile: l.file})
 }
 
-func (l *matchList) duplicate(m model.Match) { l.a.editor.duplicate(m) }
+func (l *matchList) duplicate(m model.Match) {
+	if l.draft.existing == m.ID {
+		m = l.draft.current()
+	}
+	l.a.editor.duplicate(m)
+}
 
 // remove deletes m at once, with Undo in a toast to put it back where it
 // was.
@@ -161,6 +273,7 @@ func (l *matchList) remove(c *ui.Context, m model.Match) {
 	if i < 0 {
 		return
 	}
+	m = l.a.store.Matches[i] // as saved, not as edited
 	l.a.store.Remove(m.ID)
 	c.ToastAction(fmt.Sprintf("Deleted %s", m.Key()), "Undo", func() {
 		l.a.store.Insert(i, m)
@@ -173,9 +286,18 @@ func copyReplacement(c *ui.Context, m model.Match) {
 	c.Toast("Copied to the clipboard")
 }
 
+// toggle turns m on or off at once, apart from the edits of its draft,
+// which may not be saved yet.
 func (l *matchList) toggle(m model.Match) {
-	m.Enabled = !m.Enabled
-	l.a.store.Update(m)
+	stored, ok := l.a.store.Match(m.ID)
+	if !ok {
+		return
+	}
+	stored.Enabled = !stored.Enabled
+	l.a.store.Update(stored)
+	if d := &l.draft; d.existing == m.ID {
+		d.enabled, d.orig.Enabled = stored.Enabled, stored.Enabled
+	}
 }
 
 // shortcuts are the page's keys. Settings declares them at the top of
@@ -183,6 +305,7 @@ func (l *matchList) toggle(m model.Match) {
 func (l *matchList) shortcuts(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() { l.search.Focus() })
 	c.OnShortcut(ui.Cmd, ui.KeyN, l.add)
+	c.OnShortcut(ui.Cmd, ui.KeyEnter, func() { l.commit() })
 	c.OnShortcut(ui.Cmd, ui.KeyD, func() {
 		if m, ok := l.selected(); ok {
 			l.duplicate(m)
@@ -221,9 +344,7 @@ func (l *matchList) view(c *ui.Context) {
 					l.move(1)
 				}
 				if search.Shortcut(0, ui.KeyEnter) {
-					if m, ok := l.selected(); ok {
-						l.edit(m)
-					}
+					l.focusReplacement()
 				}
 			}
 			what := "match"
@@ -331,9 +452,7 @@ func (l *matchList) list(c *ui.Context) {
 	l.listState.Label = func(i int) string { return l.shown[i].Title() }
 	list := ui.List(c, &l.listState, len(l.shown), func(i int) { l.row(c, i) }).Fill().Padding(6, 8).Gap(1)
 	if list.Submitted() {
-		if m, ok := l.selected(); ok {
-			l.edit(m)
-		}
+		l.focusReplacement()
 	}
 	if list.Focused() && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
 		if m, ok := l.selected(); ok {
@@ -372,6 +491,9 @@ func firstLine(s string) string {
 
 func (l *matchList) row(c *ui.Context, i int) {
 	m := l.shown[i]
+	if m.ID == l.draft.existing && l.draft.dirty() {
+		m = l.draft.current() // as typed, before it is saved
+	}
 	t := c.Theme()
 	chosen := i == l.chosen
 	text, mutedColor := rowColors(t, chosen)
@@ -392,7 +514,7 @@ func (l *matchList) row(c *ui.Context, i int) {
 		triggerCap(c, m, chosen, nil).Shrink(0).MaxWidth(120).Ellipsis("…").Opacity(enabledOpacity(m))
 	})
 	row.ContextMenu(func(menu *ui.Menu) {
-		if menu.Item("Edit…").Chosen() {
+		if menu.Item("Edit in Window…").Chosen() {
 			l.edit(m)
 		}
 		if menu.Item("Duplicate…").Chosen() {
@@ -456,65 +578,151 @@ func summary(s string) string {
 	return plural(n, "character", "characters")
 }
 
-// detail shows the chosen match whole: its title, trigger and file, its
-// replacement, a preview of its variables, and what can be done with it.
+// detail edits the chosen match in place: its trigger, label, replacement
+// and file, with a preview of its variables and what can be done with it.
+// Edits save themselves; see matchList.draft.
 func (l *matchList) detail(c *ui.Context) {
 	t := c.Theme()
-	m, ok := l.selected()
+	sel, ok := l.selected()
 	if !ok {
+		l.commit()
 		if len(l.shown) > 0 {
 			emptyState(c, iconMatches, "No Match Chosen", "Choose a match to see it whole.", nil)
 		}
 		return
 	}
+	l.follow(c, sel)
+	d := &l.draft
+	m := d.current()
+	focused := false
+	// field notes a field's edits and focus, and Escape in it putting
+	// the match back as saved.
+	field := func(in ui.Element) {
+		if in.Changed() {
+			l.edited()
+		}
+		if in.Focused() {
+			focused = true
+			if in.Shortcut(0, ui.KeyEscape) {
+				l.revert()
+			}
+		}
+	}
 	ui.Column(c).Fill().Children(func() {
 		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Padding(18, 22).Gap(18).Children(func() {
+			ui.Column(c).Padding(18, 22).Gap(16).Children(func() {
 				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
-					ui.Column(c).Grow(1).Shrink(1).Gap(8).Children(func() {
-						heading(c, matchTitle(m)).Wrap().MaxLines(2).Ellipsis("…")
-						ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-							triggerCap(c, m, false, nil).Shrink(1).Ellipsis("…")
-							if m.SourceFile != "" {
-								ui.Icon(c, iconFile).FontSize(12).TextColor(t.TextMuted)
-								caption(c, m.SourceFile).SingleLine().Ellipsis("…").Shrink(1)
-							}
-						})
-					})
-					on := m.Enabled
+					heading(c, matchTitle(m)).Wrap().MaxLines(2).Ellipsis("…").Grow(1).Shrink(1)
+					on := sel.Enabled
 					if ui.Switch(c, &on).Label("Enabled").Tooltip("Turn this match on or off").Changed() {
-						l.toggle(m)
+						l.toggle(sel)
 					}
 				})
-				section(c, "Replacement", func() {
-					replacementPlate(c, m.Replace)
+				ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
+					ui.Column(c).Grow(1).Basis(0).Children(func() {
+						section(c, "Trigger", func() {
+							field(ui.TextInput(c, &d.trigger).Bind(&d.triggerIn).Label("Trigger").Placeholder("None: a prompt").Font("monospace"))
+						})
+					})
+					ui.Column(c).Grow(1.4).Basis(0).Children(func() {
+						section(c, "Label", func() {
+							placeholder := "Optional"
+							if d.isPrompt() {
+								placeholder = "Else its first line"
+							}
+							field(ui.TextInput(c, &d.label).Label("Label").Placeholder(placeholder))
+						})
+					})
 				})
-				if strings.Contains(m.Replace, "{{") {
+				if _, bad := d.problem(l.a.store.Matches); bad || d.isPrompt() {
+					d.note(c, l.a.store)
+				}
+				ui.Column(c).Gap(6).Children(func() {
+					before := d.replace
+					ui.Row(c).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, "Replacement").FontSize(11).FontWeight(600).TextColor(t.TextMuted)
+						ui.Spacer(c)
+						d.insertMenu(c)
+					})
+					ta := d.replaceField(c).Lines(3, 16)
+					field(ta)
+					if d.replace != before && !ta.Changed() {
+						l.edited() // a variable inserted
+					}
+				})
+				if strings.Contains(d.replace, "{{") {
 					section(c, "Preview", func() {
-						textPlate(c, l.preview(m))
+						textPlate(c, d.previewed()).MaxLines(8).Ellipsis("…")
 					})
 				}
 				section(c, "Details", func() {
 					used := "Never"
-					if at, ok := l.a.recency.Last(m.Key()); ok {
+					if at, ok := l.a.recency.Last(sel.Key()); ok {
 						used = ago(at, time.Now())
 					}
 					facts(c, [][2]string{
-						{"Length", summary(m.Replace)},
+						{"Length", summary(d.replace)},
 						{"Inserted", l.delivery(m)},
 						{"Last used", used},
 					})
 				})
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					muted(c, "Match File").FontSize(12)
+					if ui.Select(c, &d.file, l.a.store.SourceFiles()).Label("Match File").MinWidth(160).Changed() {
+						l.commit()
+					}
+				})
 			})
 		})
+		if l.focused && !focused {
+			l.commit() // the focus left the fields
+		}
+		l.focused = focused
 		ui.Divider(c).Background(t.Border.Alpha(0.6))
 		ui.Row(c).Padding(10, 16).Gap(4).AlignItems(ui.Center).Children(func() {
-			ui.Button(c, "Edit…").Label("Edit match").OnClick(func() { l.edit(m) })
+			l.status(c)
 			ui.Spacer(c)
 			iconButton(c, iconCopy, "Copy replacement").OnClick(func() { copyReplacement(c, m) })
-			iconButton(c, iconDupe, "Duplicate match (⌘D)").OnClick(func() { l.duplicate(m) })
-			iconButton(c, iconTrash, "Delete match (⌫)").OnClick(func() { l.remove(c, m) })
+			iconButton(c, iconDupe, "Duplicate match (⌘D)").OnClick(func() { l.duplicate(sel) })
+			iconButton(c, iconTrash, "Delete match (⌫)").OnClick(func() { l.remove(c, sel) })
 		})
+	})
+}
+
+// revert puts the draft back as the chosen match was saved.
+func (l *matchList) revert() {
+	if l.autosave != nil {
+		l.autosave.Stop()
+	}
+	if m, ok := l.a.store.Match(l.draft.existing); ok {
+		l.draft.set(m)
+		l.draft.begin()
+	}
+}
+
+// status says whether the edits of the detail are saved: edited and not
+// yet, saved, or kept from it by what the note under the trigger says.
+func (l *matchList) status(c *ui.Context) {
+	t := c.Theme()
+	d := &l.draft
+	icon, color, text := iconPencil, t.TextMuted, ""
+	switch _, bad := d.problem(l.a.store.Matches); {
+	case d.dirty() && (bad || !d.canSave()):
+		icon, color, text = iconWarning, t.Warning, "Not saved"
+	case d.dirty():
+		text = "Edited"
+	case l.saved:
+		icon, text = iconMatched, "Saved"
+	default:
+		return
+	}
+	c.Key(text)
+	ui.Row(c).Gap(5).AlignItems(ui.Center).Padding(0, 4).Transition(fadeTransition).Children(func() {
+		ui.Icon(c, icon).FontSize(12).TextColor(color)
+		caption(c, text).TextColor(color).SingleLine()
+		if d.dirty() {
+			kbd(c, "esc").Tooltip("Undo the edits").Margin(0, 0, 0, 4)
+		}
 	})
 }
 
@@ -549,15 +757,4 @@ func (l *matchList) delivery(m model.Match) string {
 		return "Pasted through the clipboard"
 	}
 	return "Typed key by key"
-}
-
-// preview renders m's variables, again only when the match or its
-// replacement changed: it reads the clipboard.
-func (l *matchList) preview(m model.Match) string {
-	if l.previewID != m.ID || l.previewOf != m.Replace {
-		clip, _ := macos.PasteboardString()
-		l.previewID, l.previewOf = m.ID, m.Replace
-		l.previewText = engine.RenderPreview(m.Replace, clip, time.Now())
-	}
-	return l.previewText
 }

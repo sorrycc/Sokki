@@ -8,6 +8,9 @@ The update window shows the section of the version it offers: every release need
 
 ## Unreleased
 
+- Edit a match right in **Settings → Matches**: changes save a moment after you stop typing.
+- An edit that can't be saved, like a taken trigger, says why and shows **Not saved**; `esc` undoes it.
+- **Edit in Window…** in a match's context menu still opens the full editor.
 - The palette finds the prompts you sent in Claude Code, Codex, Gemini, Qoder, Grok, opencode and Aider.
 - One prompt sent in several agents shows once, with the agents it went to and how often.
 - Palette results rank by how often and how lately you used them, matches as well as prompts.

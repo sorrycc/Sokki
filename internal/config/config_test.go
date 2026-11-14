@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"sokki/internal/logx"
 	"sokki/internal/model"
@@ -96,6 +97,28 @@ func TestStoreSaves(t *testing.T) {
 	}
 	if files := s.SourceFiles(); len(files) != 2 || files[1] != "work.yml" {
 		t.Fatalf("files %v", files)
+	}
+}
+
+// TestSaveLeavesUnchangedFiles is an edit in one file leaving the others
+// as they were, unwritten.
+func TestSaveLeavesUnchangedFiles(t *testing.T) {
+	d := tempDir(t)
+	d.Bootstrap()
+	s := NewStore(d)
+	s.Load()
+	s.Add(model.Match{Trigger: ":w", Replace: "work", Enabled: true, SourceFile: "work.yml"})
+	work := filepath.Join(d.MatchDir(), "work.yml")
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(work, old, old)
+	m := s.Matches[0]
+	m.Replace = "Hello again"
+	s.Update(m)
+	if info, err := os.Stat(work); err != nil || !info.ModTime().Equal(old) {
+		t.Fatalf("work.yml written again: %v %v", info.ModTime(), err)
+	}
+	if again := d.Load(); again.Matches[0].Replace != "Hello again" {
+		t.Fatalf("edit lost: %+v", again.Matches[0])
 	}
 }
 

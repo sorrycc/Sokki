@@ -239,6 +239,7 @@ func (a *app) ready() {
 
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.quitting = true })
 	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
+		a.settings.matches.commit()
 		a.exp.Stop()
 		a.cloud.flush()
 		a.recency.Flush()

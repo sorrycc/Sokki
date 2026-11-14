@@ -103,6 +103,7 @@ func (s *settingsWindow) hide() {
 	if s.win == nil || !s.win.IsVisible() {
 		return
 	}
+	s.matches.commit()
 	s.win.Hide()
 	s.a.release()
 }
@@ -114,6 +115,7 @@ func (s *settingsWindow) showPage(page string) {
 }
 
 func (s *settingsWindow) setPage(page string) {
+	s.matches.commit()
 	s.page = page
 	switch {
 	case page == matchesPage:

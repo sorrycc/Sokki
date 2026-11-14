@@ -576,7 +576,7 @@ func TestPaletteClickChoosesDoubleClickInserts(t *testing.T) {
 func TestMatchesDetail(t *testing.T) {
 	a := testApp(t)
 	tt := ui.NewTester(a.settings.view, 780, 560)
-	for _, want := range []string{"Replacement", "Typed key by key", "Edit…"} {
+	for _, want := range []string{"Trigger", "Replacement", "Typed key by key", "Match File"} {
 		if !tt.HasText(want) {
 			t.Fatalf("detail lacks %q: %q", want, tt.Texts())
 		}
@@ -598,6 +598,108 @@ func TestMatchesDetail(t *testing.T) {
 		t.Fatalf("no preview for :today: %q", tt.Texts())
 	}
 	shot(t, tt, "matches-variables")
+}
+
+// TestMatchesEditInline is the detail editing the chosen match: saved as
+// the autosave fires, not at each key, and as another match is chosen.
+func TestMatchesEditInline(t *testing.T) {
+	a := testApp(t)
+	l := &a.settings.matches
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	l.draft.replaceIn.Focus()
+	tt.Frame()
+	tt.Type(" Bye.")
+	tt.Frame()
+	if a.store.Matches[0].Replace != "Hi there!" {
+		t.Fatalf("saved at a key: %q", a.store.Matches[0].Replace)
+	}
+	if !tt.HasText("Edited") || !tt.HasText("Hi there! Bye.") {
+		t.Fatalf("draft not shown: %q", tt.Texts())
+	}
+	shot(t, tt, "matches-inline")
+	l.commit() // as the autosave does
+	tt.Frame()
+	if m := a.store.Matches[0]; m.Replace != "Hi there! Bye." || m.Trigger != ":hello" {
+		t.Fatalf("not saved: %+v", m)
+	}
+	if !tt.HasText("Saved") {
+		t.Fatalf("no Saved: %q", tt.Texts())
+	}
+
+	// A reload after the save keeps the choice, the trigger renamed too.
+	l.draft.trigger = ":hey"
+	tt.Frame()
+	l.commit()
+	a.store.Load()
+	tt.Frame()
+	if m, ok := l.selected(); !ok || m.Trigger != ":hey" || l.draft.trigger != ":hey" {
+		t.Fatalf("lost the choice: %+v %v", m, ok)
+	}
+
+	// Choosing another match saves the draft.
+	l.draft.label = "Greeting"
+	tt.Frame()
+	if err := tt.Click(":today"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if m, _ := a.store.WithKey(":hey"); m.Label != "Greeting" {
+		t.Fatalf("not saved on leaving: %+v", m)
+	}
+	if l.draft.trigger != ":today" {
+		t.Fatalf("draft of %q", l.draft.trigger)
+	}
+}
+
+// TestMatchesInlineRefusesBadEdits is a trigger too short, or another
+// match's, shown and not saved, and Escape putting the match back.
+func TestMatchesInlineRefusesBadEdits(t *testing.T) {
+	a := testApp(t)
+	l := &a.settings.matches
+	tt := ui.NewTester(a.settings.view, 780, 560)
+	l.draft.trigger = ":today"
+	tt.Frame()
+	if !tt.HasText("Another match in default.yml has this trigger.") || !tt.HasText("Not saved") {
+		t.Fatalf("no warning: %q", tt.Texts())
+	}
+	shot(t, tt, "matches-inline-warning")
+	if l.commit() || a.store.Matches[0].Trigger != ":hello" {
+		t.Fatalf("saved a duplicate: %+v", a.store.Matches[0])
+	}
+	l.draft.trigger = ";"
+	tt.Frame()
+	if l.commit() || !tt.HasText("A trigger needs at least 2 characters, so that it doesn't expand by accident.") {
+		t.Fatalf("saved a short trigger: %q", tt.Texts())
+	}
+	// Leaving it says so, with a way back.
+	if err := tt.Click(":paste"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Keep Editing") {
+		t.Fatalf("no toast: %q", tt.Texts())
+	}
+	if err := tt.Click("Keep Editing"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if l.draft.trigger != ";" || l.chosen != 0 {
+		t.Fatalf("not back: %q %d", l.draft.trigger, l.chosen)
+	}
+	// Escape in a field puts the match back as saved.
+	l.draft.triggerIn.Focus()
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if l.draft.trigger != ":hello" || l.draft.dirty() {
+		t.Fatalf("not reverted: %q", l.draft.trigger)
+	}
+	// Backspace in a field edits it, never deletes the match.
+	tt.Key(0, ui.KeyBackspace)
+	tt.Frame()
+	if len(a.store.Matches) != 4 {
+		t.Fatalf("deleted: %d", len(a.store.Matches))
+	}
 }
 
 func TestHUD(t *testing.T) {

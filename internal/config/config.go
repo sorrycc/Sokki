@@ -4,6 +4,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -126,7 +127,8 @@ func (d Dir) loadConfig() model.Config {
 }
 
 // SaveMatches writes every match to its file, and empties the known files
-// left without any.
+// left without any. A file whose content stays is left alone: an edit of
+// one match writes one file, and wakes the watcher once.
 func (d Dir) SaveMatches(matches []model.Match, known []string) error {
 	if err := os.MkdirAll(d.MatchDir(), 0o755); err != nil {
 		return err
@@ -148,8 +150,12 @@ func (d Dir) SaveMatches(matches []model.Match, known []string) error {
 	var errs []error
 	for _, name := range files {
 		out, err := encodeMatches(grouped[name])
+		path := filepath.Join(d.MatchDir(), name)
 		if err == nil {
-			err = writeAtomic(filepath.Join(d.MatchDir(), name), out)
+			if old, rerr := os.ReadFile(path); rerr == nil && bytes.Equal(old, out) {
+				continue
+			}
+			err = writeAtomic(path, out)
 		}
 		if err != nil {
 			logx.Errorf("Failed to save %s: %v", name, err)
