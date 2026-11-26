@@ -580,7 +580,11 @@ func (a *app) ctlConfigSet(key, value string) (any, error) {
 		if err := setOpenAtLogin(on); err != nil {
 			return nil, fmt.Errorf("couldn't set launch at login: %w", err)
 		}
-		a.settings.invalidate()
+		if a.settings != nil {
+			a.settings.atLogin = on
+			a.settings.loginErr = ""
+			a.settings.invalidate()
+		}
 		return a.ctlConfigGet(key)
 	default:
 		if s, ok := a.intSettings()[key]; ok {

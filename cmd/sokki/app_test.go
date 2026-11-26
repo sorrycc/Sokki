@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image/png"
 	"os"
@@ -1435,4 +1436,138 @@ func TestShortcutsPage(t *testing.T) {
 		}
 	}
 	shot(t, narrowFull, "shortcuts-narrow-full")
+}
+
+func TestGeneralLaunchAtLoginFeedbackAndRecovery(t *testing.T) {
+	origOpen, origSet := openAtLogin, setOpenAtLogin
+	t.Cleanup(func() {
+		openAtLogin, setOpenAtLogin = origOpen, origSet
+	})
+
+	actual := false
+	fail := true
+	openAtLogin = func() bool { return actual }
+	setOpenAtLogin = func(on bool) error {
+		if fail {
+			return errors.New("operation not permitted")
+		}
+		actual = on
+		return nil
+	}
+
+	a := testApp(t)
+	a.settings.atLogin = openAtLogin()
+	a.settings.setPage(generalPage)
+	tt := ui.NewTester(a.settings.view, 640, 440)
+	clickLoginSwitch := func() {
+		t.Helper()
+		r, ok := tt.Find("Launch at login")
+		if !ok {
+			t.Fatalf("missing Launch at login row: %q", tt.Texts())
+		}
+		tt.ClickAt(r.X+r.W+16+18, r.Y+r.H)
+	}
+
+	// Failed enable restores actual false state and shows inline warning.
+	clickLoginSwitch()
+	tt.Advance(settle)
+	if a.settings.atLogin != false || actual != false {
+		t.Fatalf("atLogin=%v actual=%v, want false", a.settings.atLogin, actual)
+	}
+	wantErr := "Couldn't update Launch at login: operation not permitted"
+	if !tt.HasText(wantErr) {
+		t.Fatalf("missing login failure feedback: %q", tt.Texts())
+	}
+	shot(t, tt, "general-login-error-light")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "general-login-error-dark")
+	tt.SetDark(false)
+	tt.Frame()
+
+	// Successful retry enables Launch at login and clears prior feedback.
+	fail = false
+	clickLoginSwitch()
+	tt.Frame()
+	if !a.settings.atLogin || !actual {
+		t.Fatalf("retry did not enable: atLogin=%v actual=%v", a.settings.atLogin, actual)
+	}
+	if a.settings.loginErr != "" || tt.HasText(wantErr) {
+		t.Fatalf("prior login feedback was not cleared: %q", tt.Texts())
+	}
+
+	// Failed disable restores actual true state and shows feedback again.
+	fail = true
+	clickLoginSwitch()
+	tt.Frame()
+	if !a.settings.atLogin || !actual {
+		t.Fatalf("failed disable did not restore true: atLogin=%v actual=%v", a.settings.atLogin, actual)
+	}
+	if !tt.HasText(wantErr) {
+		t.Fatalf("missing disable failure feedback: %q", tt.Texts())
+	}
+
+	// Successful disable clears feedback again.
+	fail = false
+	clickLoginSwitch()
+	tt.Frame()
+	if a.settings.atLogin || actual || tt.HasText(wantErr) {
+		t.Fatalf("disable retry failed: atLogin=%v actual=%v texts=%q", a.settings.atLogin, actual, tt.Texts())
+	}
+}
+
+func TestGeneralNarrowLayoutAndScroll(t *testing.T) {
+	a := testApp(t)
+	a.settings.setPage(generalPage)
+
+	tt := ui.NewTester(a.settings.view, 640, 440)
+	for _, want := range []string{"General", "Expand triggers", "Launch at login", "Key delay", "ms"} {
+		if !tt.HasText(want) {
+			t.Fatalf("narrow General top lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if r, ok := tt.Find("Key delay"); !ok || r.W < 250 {
+		t.Fatalf("Key delay label still cramped at 640x440: ok=%v rect=%+v", ok, r)
+	}
+	shot(t, tt, "general-narrow-top-light")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "general-narrow-top-dark")
+	tt.SetDark(false)
+	tt.Frame()
+
+	// Scroll to the bottom of General at 640x440 and check Files & Command Line controls.
+	tt.Move(420, 220)
+	for range 12 {
+		tt.Scroll(420, 220, 0, 120)
+	}
+	tt.Frame()
+	for _, want := range []string{"Files", "Show Log", "Open Folder", "Install…"} {
+		r, ok := tt.Find(want)
+		if !ok || r.W <= 0 || r.H <= 0 {
+			t.Fatalf("narrow General bottom %q not visible: ok=%v rect=%+v", want, ok, r)
+		}
+		if r.X < sidebarWidth || r.X+r.W > 640 || r.Y < 0 || r.Y+r.H > 440 {
+			t.Fatalf("narrow General bottom %q out of viewport bounds: %+v", want, r)
+		}
+	}
+	if r, ok := tt.Find("Files"); !ok || r.W < 250 {
+		t.Fatalf("Files label still cramped at 640x440: ok=%v rect=%+v", ok, r)
+	}
+	shot(t, tt, "general-narrow-bottom-light")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "general-narrow-bottom-dark")
+
+	// Full-height narrow render for visual review in both themes.
+	full := ui.NewTester(a.settings.view, 640, 1200)
+	for _, want := range []string{"Paste longer than", "chars", "Restore after", "Log level", "Show Log", "Open Folder", "Install…"} {
+		if !full.HasText(want) {
+			t.Fatalf("narrow full General lacks %q: %q", want, full.Texts())
+		}
+	}
+	shot(t, full, "general-narrow-full-light")
+	full.SetDark(true)
+	full.Frame()
+	shot(t, full, "general-narrow-full-dark")
 }

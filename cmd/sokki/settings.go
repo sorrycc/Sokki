@@ -57,6 +57,8 @@ type settingsWindow struct {
 	confirmOut    bool
 	// atLogin is whether Sokki opens at login, read as Settings shows.
 	atLogin bool
+	// loginErr is shown beneath Launch at login when changing it fails.
+	loginErr string
 }
 
 func newSettingsWindow(a *app) *settingsWindow {
@@ -92,7 +94,8 @@ func (s *settingsWindow) show() {
 	if !s.win.IsVisible() {
 		s.a.acquire()
 	}
-	s.atLogin = mygo.App.OpenAtLogin()
+	s.atLogin = openAtLogin()
+	s.loginErr = ""
 	s.a.cloud.pull()
 	s.win.Show()
 	s.win.Focus()
@@ -268,8 +271,12 @@ func sidebarCount(c *ui.Context, n int) {
 // scrollPage lays out a page of settings: its header, which drags the
 // window, over its groups, which scroll.
 func scrollPage(c *ui.Context, title, subtitle string, fn func()) {
+	scrollPagePad(c, 28, title, subtitle, fn)
+}
+
+func scrollPagePad(c *ui.Context, padX float32, title, subtitle string, fn func()) {
 	ui.Scroll(c).Grow(1).Children(func() {
-		ui.Column(c).Padding(0, 28, 28, 28).Gap(22).MaxWidth(680).Children(func() {
+		ui.Column(c).Padding(0, padX, 28, padX).Gap(22).MaxWidth(680).Children(func() {
 			ui.Box(c).Height(max(c.TitleBar().Height, 12)).DragWindow()
 			ui.Column(c).DragWindow().Children(func() { pageHeader(c, title, subtitle, nil) })
 			fn()
@@ -348,39 +355,91 @@ func shortcutLabel(options []option, value string) string {
 	return ""
 }
 
+// generalNarrowWidth is the Settings window width below which wide General
+// controls stack under their labels so descriptions stay readable.
+const generalNarrowWidth = 700
+
+// generalSetting lays out a General setting row, stacking the control below its
+// label and description when stack is true on narrow windows.
+func generalSetting(c *ui.Context, label, description string, first, stack bool, control func()) {
+	if !stack {
+		setting(c, label, description, first, control)
+		return
+	}
+	t := c.Theme()
+	col := ui.Column(c).Padding(10, 14).Gap(8)
+	if !first {
+		col.BorderWidth(0.5, 0, 0, 0).BorderColor(t.Border.Alpha(0.6))
+	}
+	col.Children(func() {
+		ui.Column(c).Gap(2).Children(func() {
+			ui.Text(c, label).Wrap()
+			if description != "" {
+				caption(c, description).Wrap()
+			}
+		})
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(control)
+	})
+}
+
+func loginErrorMessage(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return "Couldn't update Launch at login."
+	}
+	return "Couldn't update Launch at login: " + msg
+}
+
 func (s *settingsWindow) general(c *ui.Context) {
 	cfg := &s.a.store.Config
 	changed := false
-	scrollPage(c, "General", "How Sokki starts and types for you.", func() {
-		group(c, "", func() {
-			setting(c, "Expand triggers", "Turn off to pause Sokki everywhere.", true, func() {
-				changed = ui.Switch(c, &cfg.Enabled).Label("Expand triggers").Changed() || changed
-			})
-			setting(c, "Launch at login", "Start Sokki when you log in to your Mac.", false, func() {
-				if ui.Switch(c, &s.atLogin).Label("Launch at login").Changed() {
-					if err := mygo.App.SetOpenAtLogin(s.atLogin); err != nil {
-						logx.Errorf("Failed to set launch at login: %v", err)
-						s.atLogin = !s.atLogin
+	w, _ := c.Size()
+	narrow := w > 0 && w < generalNarrowWidth
+	padX := float32(28)
+	if narrow {
+		padX = 20
+	}
+	scrollPagePad(c, padX, "General", "How Sokki starts and types for you.", func() {
+		ui.Column(c).Gap(8).Children(func() {
+			group(c, "", func() {
+				setting(c, "Expand triggers", "Turn off to pause Sokki everywhere.", true, func() {
+					changed = ui.Switch(c, &cfg.Enabled).Label("Expand triggers").Changed() || changed
+				})
+				setting(c, "Launch at login", "Start Sokki when you log in to your Mac.", false, func() {
+					if ui.Switch(c, &s.atLogin).Label("Launch at login").Changed() {
+						if err := setOpenAtLogin(s.atLogin); err != nil {
+							logx.Errorf("Failed to set launch at login: %v", err)
+							s.atLogin = openAtLogin()
+							s.loginErr = loginErrorMessage(err)
+						} else {
+							s.loginErr = ""
+						}
 					}
-				}
+				})
 			})
+			if s.loginErr != "" {
+				ui.Row(c).Gap(6).AlignItems(ui.Center).PaddingX(4).Transition(fadeTransition).Children(func() {
+					ui.Icon(c, iconWarning).FontSize(12).TextColor(c.Theme().Warning).Shrink(0)
+					caption(c, s.loginErr).Wrap().Shrink(1)
+				})
+			}
 		})
 		group(c, "Typing", func() {
-			setting(c, "Key delay", "The pause between typed keys. Raise it for apps that drop keys.", true, func() {
+			generalSetting(c, "Key delay", "The pause between typed keys. Raise it for apps that drop keys.", true, narrow, func() {
 				changed = number(c, &cfg.InjectDelay, 0, 1000, "ms") || changed
 			})
-			setting(c, "Overlap delay", "When a trigger starts a longer one, how long to wait for the rest.", false, func() {
+			generalSetting(c, "Overlap delay", "When a trigger starts a longer one, how long to wait for the rest.", false, narrow, func() {
 				changed = number(c, &cfg.ConflictResolveDelayMs, 50, 5000, "ms") || changed
 			})
 		})
 		group(c, "Clipboard", func() {
-			setting(c, "Paste longer than", "Longer replacements are pasted instead of typed, which is faster.", true, func() {
+			generalSetting(c, "Paste longer than", "Longer replacements are pasted instead of typed, which is faster.", true, narrow, func() {
 				changed = number(c, &cfg.ClipboardThreshold, 0, 100000, "chars") || changed
 			})
 			setting(c, "Restore clipboard", "Put back what was on the clipboard after pasting.", false, func() {
 				changed = ui.Switch(c, &cfg.PreserveClipboard).Label("Restore clipboard").Changed() || changed
 			})
-			setting(c, "Restore after", "How long to wait before putting the clipboard back.", false, func() {
+			generalSetting(c, "Restore after", "How long to wait before putting the clipboard back.", false, narrow, func() {
 				changed = number(c, &cfg.RestoreClipboardDelay, 0, 10000, "ms") || changed
 			})
 		})
@@ -388,7 +447,7 @@ func (s *settingsWindow) general(c *ui.Context) {
 			setting(c, "Log level", "Debug also logs every expansion.", true, func() {
 				changed = choose(c, &cfg.LogLevel, []option{{"error", "Errors only"}, {"debug", "Debug"}}) || changed
 			})
-			setting(c, "Files", "Matches and settings live in ~/.config/sokki.", false, func() {
+			generalSetting(c, "Files", "Matches and settings live in ~/.config/sokki.", false, narrow, func() {
 				if ui.Button(c, "Show Log").Clicked() {
 					mygo.Shell.OpenPath(logx.File())
 				}
