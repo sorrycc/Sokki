@@ -1358,3 +1358,81 @@ func TestAccelerator(t *testing.T) {
 		}
 	}
 }
+
+func TestShortcutsPage(t *testing.T) {
+	a := testApp(t)
+	a.store.Config.PaletteShortcut = "opt+space"
+	a.store.Config.CaptureShortcut = "ctrl+opt+p"
+	a.store.Config.ToggleShortcut = "double_option"
+	a.store.Config.HUDShortcut = "double_option"
+	a.settings.setPage(shortcutsPage)
+
+	// Default width, tall enough to render the full reference page.
+	tt := ui.NewTester(a.settings.view, 780, 1750)
+	for _, want := range []string{
+		"Anywhere",
+		"Both use the same key: it shows Recent Activity.",
+		"In the Palette (Built-in)",
+		"Insert",
+		"Insert and send", "⌥↵",
+		"Edit before inserting", "⇥",
+		"Open match or save history prompt", "⌘↵",
+		"Save history prompt", "⌘S",
+		"Hide from history", "⌘⌫",
+		"Switch scope", "⌘1", "⌘2", "⌘3",
+		"In Settings → Matches (Built-in)",
+		"Focus Search", "⌘F",
+		"Edit replacement",
+		"Save edits now",
+		"Delete match", "⌫",
+		"In Settings (Built-in)",
+		"Switch Settings pages", "⌘1–⌘8",
+		"Close Settings", "⌘W",
+	} {
+		if !tt.HasText(want) {
+			t.Fatalf("Shortcuts lacks %q: %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "shortcuts-full")
+
+	// Changing a global shortcut resolves the conflict and saves to disk.
+	a.store.Config.ToggleShortcut = "none"
+	tt.Frame()
+	if tt.HasText("Both use the same key: it shows Recent Activity.") {
+		t.Fatalf("conflict warning remained after resolving: %q", tt.Texts())
+	}
+	if err := tt.Click("None"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	if err := tt.Click("Double-tap ⇧ Shift"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	if a.store.Config.ToggleShortcut != "double_shift" {
+		t.Fatalf("toggle = %q, want double_shift", a.store.Config.ToggleShortcut)
+	}
+	if again := a.dir.Load(); again.Config.ToggleShortcut != "double_shift" {
+		t.Fatalf("not saved: %q", again.Config.ToggleShortcut)
+	}
+
+	// Narrow minimum Settings size (640x440) and full-height narrow check.
+	narrow := ui.NewTester(a.settings.view, 640, 440)
+	for _, want := range []string{"Shortcuts", "Anywhere", "Search matches", "Pause or resume"} {
+		if !narrow.HasText(want) {
+			t.Fatalf("narrow Shortcuts lacks %q: %q", want, narrow.Texts())
+		}
+	}
+	shot(t, narrow, "shortcuts-narrow")
+
+	narrowFull := ui.NewTester(a.settings.view, 640, 1950)
+	for _, want := range []string{
+		"In the Palette (Built-in)",
+		"In Settings → Matches (Built-in)",
+		"In Settings (Built-in)",
+		"⌘1–⌘8",
+	} {
+		if !narrowFull.HasText(want) {
+			t.Fatalf("narrow full Shortcuts lacks %q: %q", want, narrowFull.Texts())
+		}
+	}
+	shot(t, narrowFull, "shortcuts-narrow-full")
+}

@@ -347,12 +347,12 @@ func setting(c *ui.Context, label, description string, first bool, control func(
 	}
 	row.Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-			ui.Text(c, label)
+			ui.Text(c, label).Wrap()
 			if description != "" {
 				caption(c, description).Wrap()
 			}
 		})
-		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(control)
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(0).Children(control)
 	})
 }
 
@@ -362,7 +362,7 @@ func pageHeader(c *ui.Context, title, subtitle string, end func()) {
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
 			ui.Text(c, title).FontSize(20).Bold().SingleLine()
 			if subtitle != "" {
-				muted(c, subtitle).SingleLine()
+				muted(c, subtitle).Wrap()
 			}
 		})
 		if end != nil {

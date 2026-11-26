@@ -419,10 +419,28 @@ func (s *settingsWindow) general(c *ui.Context) {
 	}
 }
 
+type shortcutRef struct {
+	keys   []string
+	label  string
+	detail string
+}
+
+func shortcutGroup(c *ui.Context, title string, items []shortcutRef) {
+	group(c, title, func() {
+		for i, item := range items {
+			setting(c, item.label, item.detail, i == 0, func() {
+				for _, k := range item.keys {
+					kbd(c, k)
+				}
+			})
+		}
+	})
+}
+
 func (s *settingsWindow) shortcuts(c *ui.Context) {
 	cfg := &s.a.store.Config
 	changed := false
-	scrollPage(c, "Shortcuts", "Reach Sokki from any app.", func() {
+	scrollPage(c, "Shortcuts", "Global keys you can change, and built-in keys in the palette and Settings.", func() {
 		group(c, "Anywhere", func() {
 			setting(c, "Search matches", "Opens the palette to find a match or prompt and type it.", true, func() {
 				changed = choose(c, &cfg.PaletteShortcut, paletteOptions) || changed
@@ -443,17 +461,33 @@ func (s *settingsWindow) shortcuts(c *ui.Context) {
 				caption(c, "Both use the same key: it shows Recent Activity.").Wrap().Shrink(1)
 			})
 		}
-		group(c, "In the palette", func() {
-			for i, h := range [][2]string{
-				{"↵", "Type the match into the app you were in"},
-				{"⌘C", "Copy it, its variables filled in"},
-				{"⌘↵", "Edit the match"},
-				{"⌘N", "New prompt, from the selection or the clipboard"},
-				{"⌘,", "Open Settings"},
-				{"esc", "Clear the search, then close"},
-			} {
-				setting(c, h[1], "", i == 0, func() { kbd(c, h[0]) })
-			}
+		shortcutGroup(c, "In the Palette (Built-in)", []shortcutRef{
+			{[]string{"↵"}, "Insert", "Type the chosen match or history prompt into the app you were in."},
+			{[]string{"⌥↵"}, "Insert and send", "Insert the chosen match or history prompt, then press Return."},
+			{[]string{"⇥"}, "Edit before inserting", "Edit the text once without changing the saved match or history. Then ⌘↵ to insert, ⌥⌘↵ to send, or esc to go back."},
+			{[]string{"⌘↵"}, "Open match or save history prompt", "Opens a match in the full editor, or opens New Prompt for a history prompt."},
+			{[]string{"⌘C"}, "Copy to clipboard", "Copies the chosen match (with variables filled in) or history prompt."},
+			{[]string{"⌘S"}, "Save history prompt", "History prompts only: saves the chosen prompt to prompts.yml."},
+			{[]string{"⌘⌫"}, "Hide from history", "History prompts only: hides the chosen prompt. Press ⌘Z while the notice shows to undo."},
+			{[]string{"⌘1", "⌘2", "⌘3"}, "Switch scope", "Filter results by All, Matches, or History."},
+			{[]string{"↑", "↓"}, "Move selection", "Step through search results while keeping Search focused."},
+			{[]string{"⌘N"}, "New prompt", "Prefilled from your selection or clipboard. Then ⌘↵ to save, ⌘E for the full editor, or esc to go back."},
+			{[]string{"⌘,"}, "Open Settings", ""},
+			{[]string{"esc"}, "Clear search, then close", "Clears the search query first; press again to close the palette."},
+		})
+		shortcutGroup(c, "In Settings → Matches (Built-in)", []shortcutRef{
+			{[]string{"⌘F"}, "Focus Search", "Works anywhere on a Matches page, including the sidebar."},
+			{[]string{"↑", "↓"}, "Move through matches", "Works while Search or the match list is focused."},
+			{[]string{"↵"}, "Edit replacement", "From Search or the match list, jumps to the end of the chosen replacement."},
+			{[]string{"⌘↵"}, "Save edits now", "Inline changes also autosave after you stop typing or leave the field."},
+			{[]string{"esc"}, "Clear search or revert edits", "Clears Search when focused, or undoes unsaved edits in Trigger, Label, or Replacement."},
+			{[]string{"⌘N"}, "New match or prompt", "Creates a prompt when viewing the Prompts filter, otherwise a match."},
+			{[]string{"⌘D"}, "Duplicate match", "Opens a copy of the chosen match in the editor window."},
+			{[]string{"⌫"}, "Delete match", "When the match list is focused; includes Undo in the toast."},
+		})
+		shortcutGroup(c, "In Settings (Built-in)", []shortcutRef{
+			{[]string{"⌘1–⌘8"}, "Switch Settings pages", "Jumps between All Matches, General, Insights, Agent History, Shortcuts, Account, Privacy, and About."},
+			{[]string{"⌘W"}, "Close Settings", "Saves any pending inline match edit and hides the window."},
 		})
 	})
 	if changed {

@@ -8,6 +8,7 @@ The update window shows the section of the version it offers: every release need
 
 ## Unreleased
 
+- **Settings → Shortcuts** now lists built-in Palette, Matches, and Settings shortcuts.
 - `↵` from search in **Settings → Matches** jumps straight to editing the chosen replacement.
 - Searching in **Settings → Matches** keeps the chosen match selected and scrolls it into view.
 
