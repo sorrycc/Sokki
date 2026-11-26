@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
+## Unreleased
+
+- `↵` from search in **Settings → Matches** jumps straight to editing the chosen replacement.
+- Searching in **Settings → Matches** keeps the chosen match selected and scrolls it into view.
+
 ## 0.4.0
 
 - Edit a match right in **Settings → Matches**: changes save a moment after you stop typing.

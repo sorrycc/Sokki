@@ -38,6 +38,8 @@ type matchList struct {
 	saved bool
 	// focused is whether a field of the detail had the focus last frame.
 	focused bool
+	// searchFocused is whether the search field has the focus in this frame.
+	searchFocused bool
 
 	shown []model.Match
 	// key is what shown was filtered for: the store's generation, the
@@ -86,7 +88,14 @@ func (l *matchList) filter() {
 	if key == l.key {
 		return
 	}
-	if key.gen != l.key.gen || !l.key.valid {
+	prevKey := l.key
+	var prevID int64
+	if prevKey.valid && prevKey.file == key.file && prevKey.kind == key.kind {
+		if m, ok := l.selected(); ok {
+			prevID = m.ID
+		}
+	}
+	if key.gen != prevKey.gen || !prevKey.valid {
 		l.lowers = l.lowers[:0]
 		for _, m := range l.a.store.Matches {
 			l.lowers = append(l.lowers, strings.ToLower(m.Trigger)+"\x00"+strings.ToLower(m.Label)+"\x00"+strings.ToLower(m.Replace))
@@ -104,9 +113,31 @@ func (l *matchList) filter() {
 		}
 		l.shown = append(l.shown, m)
 	}
-	l.chosen = min(l.chosen, len(l.shown)-1)
-	if l.chosen < 0 && len(l.shown) > 0 {
-		l.chosen = 0 // the first of a list that was empty
+	kept := false
+	switch {
+	case len(l.shown) == 0:
+		l.chosen = -1
+	case prevID != 0:
+		if i := slices.IndexFunc(l.shown, func(m model.Match) bool { return m.ID == prevID }); i >= 0 {
+			l.chosen = i
+			kept = true
+		} else if prevKey.query != key.query {
+			l.chosen = 0
+		} else {
+			l.chosen = max(0, min(l.chosen, len(l.shown)-1))
+		}
+	case prevKey.valid && (prevKey.query != key.query || prevKey.file != key.file || prevKey.kind != key.kind):
+		l.chosen = 0
+	default:
+		l.chosen = max(0, min(l.chosen, len(l.shown)-1))
+	}
+	if prevKey.valid {
+		if !kept {
+			l.listState = ui.ListState{}
+		}
+		if l.chosen >= 0 {
+			l.listState.ScrollIntoView(l.chosen)
+		}
 	}
 }
 
@@ -151,11 +182,14 @@ func (l *matchList) edit(m model.Match) {
 
 // focusReplacement puts the caret at the end of the chosen match's
 // replacement, to edit it.
-func (l *matchList) focusReplacement() {
-	if _, ok := l.selected(); ok {
-		l.draft.caret, l.draft.caretSet = utf8.RuneCountInString(l.draft.replace), true
-		l.draft.replaceIn.Focus()
+func (l *matchList) focusReplacement(c *ui.Context) {
+	sel, ok := l.selected()
+	if !ok {
+		return
 	}
+	l.follow(c, sel)
+	l.draft.caret, l.draft.caretSet = utf8.RuneCountInString(l.draft.replace), true
+	l.draft.replaceIn.Focus()
 }
 
 // edited schedules the autosave of the draft, after the typing stops.
@@ -332,19 +366,22 @@ func (l *matchList) view(c *ui.Context) {
 				}
 				caption(c, sub).FontFeatures("tnum")
 			})
-			search := ui.SearchField(c, &l.query).Bind(&l.search).Label("Search").Placeholder("Search").Tooltip("Search matches (⌘F)").Width(200)
+			search := l.searchField(c)
 			if search.Changed() {
 				l.filter()
 			}
-			if search.Focused() {
+			// The focused search takes a plain Enter as its submit before
+			// a key shortcut sees it, so Enter jumps to the replacement here.
+			if search.Submitted() {
+				l.focusReplacement(c)
+			}
+			l.searchFocused = search.Focused()
+			if l.searchFocused {
 				if search.Shortcut(0, ui.KeyUp) {
 					l.move(-1)
 				}
 				if search.Shortcut(0, ui.KeyDown) {
 					l.move(1)
-				}
-				if search.Shortcut(0, ui.KeyEnter) {
-					l.focusReplacement()
 				}
 			}
 			what := "match"
@@ -388,6 +425,43 @@ func (l *matchList) view(c *ui.Context) {
 			})
 		}
 	})
+}
+
+// searchField is the Matches header's search input, with TextInputBase bound
+// directly to l.search so ⌘F, clicking, typing, arrows, Enter and Escape all
+// target the same focused input.
+func (l *matchList) searchField(c *ui.Context) ui.Element {
+	t := c.Theme()
+	var in ui.Element
+	border := t.Border
+	if l.searchFocused {
+		border = t.Accent
+	}
+	box := ui.Row(c).Width(200).Padding(5, 8).Gap(6).AlignItems(ui.Center).
+		Radius(t.Radius).Background(t.Surface).Border(1, border).Tooltip("Search matches (⌘F)")
+	box.Children(func() {
+		ui.Icon(c, iconSearch).FontSize(13).TextColor(t.TextMuted).Shrink(0)
+		in = ui.TextInputBase(c, &l.query).Bind(&l.search).Grow(1).Shrink(1).
+			Label("Search").Placeholder("Search")
+		if l.query != "" {
+			if ui.ButtonBase(c).Label("Clear").Size(16, 16).Radius(8).
+				Background(t.TextMuted.Alpha(0.45)).Center().Shrink(0).Children(func() {
+				ui.Text(c, "×").FontSize(11).Bold().TextColor(t.Background)
+			}).Clicked() {
+				l.query = ""
+				l.search.Focus()
+				l.filter()
+			}
+		}
+	})
+	if box.Clicked() {
+		l.search.Focus()
+	}
+	if in.Focused() && l.query != "" && in.Shortcut(0, ui.KeyEscape) {
+		l.query = ""
+		l.filter()
+	}
+	return in
 }
 
 // accessBanner asks for the Accessibility permission, without which no
@@ -452,7 +526,7 @@ func (l *matchList) list(c *ui.Context) {
 	l.listState.Label = func(i int) string { return l.shown[i].Title() }
 	list := ui.List(c, &l.listState, len(l.shown), func(i int) { l.row(c, i) }).Fill().Padding(6, 8).Gap(1)
 	if list.Submitted() {
-		l.focusReplacement()
+		l.focusReplacement(c)
 	}
 	if list.Focused() && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
 		if m, ok := l.selected(); ok {
@@ -714,6 +788,13 @@ func (l *matchList) status(c *ui.Context) {
 	case l.saved:
 		icon, text = iconMatched, "Saved"
 	default:
+		if l.searchFocused {
+			c.Key("Edit")
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(0, 4).Transition(fadeTransition).Children(func() {
+				kbd(c, "↵")
+				caption(c, "Edit replacement").SingleLine()
+			})
+		}
 		return
 	}
 	c.Key(text)

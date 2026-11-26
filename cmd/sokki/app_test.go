@@ -702,6 +702,175 @@ func TestMatchesInlineRefusesBadEdits(t *testing.T) {
 	}
 }
 
+// TestMatchesSearchKeyboardWorkflow verifies ⌘F → search → arrows → Enter
+// lands at the end of the chosen match's Replacement editor while keeping
+// inline autosave and Escape revert intact.
+func TestMatchesSearchKeyboardWorkflow(t *testing.T) {
+	a := testApp(t)
+	a.store.Add(model.Match{Trigger: ":beta", Label: "Shared", Replace: "Beta text", Enabled: true})
+	a.store.Add(model.Match{Trigger: ":gamma", Label: "Shared", Replace: "Gamma text", Enabled: true})
+	l := &a.settings.matches
+	tt := ui.NewTester(a.settings.view, 780, 560)
+
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if !tt.Focused("Search") {
+		t.Fatal("⌘F did not focus Search")
+	}
+	if !tt.HasText("Edit replacement") {
+		t.Fatalf("missing Enter hint while searching: %q", tt.Texts())
+	}
+	shot(t, tt, "matches-search-focused")
+
+	tt.Type("shared")
+	tt.Frame()
+	if len(l.shown) != 2 || l.chosen != 0 || l.shown[l.chosen].Trigger != ":beta" {
+		t.Fatalf("unexpected search results: shown=%d chosen=%d", len(l.shown), l.chosen)
+	}
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+	if l.chosen != 1 || l.shown[l.chosen].Trigger != ":gamma" {
+		t.Fatalf("Down did not select :gamma: chosen=%d", l.chosen)
+	}
+	tt.Key(0, ui.KeyUp)
+	tt.Frame()
+	if l.chosen != 0 || l.shown[l.chosen].Trigger != ":beta" {
+		t.Fatalf("Up did not select :beta: chosen=%d", l.chosen)
+	}
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !tt.Focused("Replacement") {
+		t.Fatal("Enter in focused Search did not focus Replacement")
+	}
+	if tt.Focused("Search") {
+		t.Fatal("Search kept focus after Enter")
+	}
+	tt.Type("!")
+	tt.Frame()
+	if l.draft.replace != "Gamma text!" {
+		t.Fatalf("caret not at end of chosen replacement: %q", l.draft.replace)
+	}
+	if !tt.HasText("Edited") {
+		t.Fatalf("inline edit not marked Edited: %q", tt.Texts())
+	}
+	// Escape still reverts the inline draft.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if l.draft.replace != "Gamma text" || l.draft.dirty() {
+		t.Fatalf("Escape did not revert: %q dirty=%v", l.draft.replace, l.draft.dirty())
+	}
+	// Editing and committing still saves.
+	tt.Type("!")
+	tt.Frame()
+	if !l.commit() {
+		t.Fatal("commit refused valid edit")
+	}
+	if m, _ := a.store.WithKey(":gamma"); m.Replace != "Gamma text!" {
+		t.Fatalf("not saved: %+v", m)
+	}
+}
+
+// TestMatchesSearchEmptyEnterKeepsFocus checks that pressing Enter with no
+// matching results does not steal focus from the search field.
+func TestMatchesSearchEmptyEnterKeepsFocus(t *testing.T) {
+	a := testApp(t)
+	l := &a.settings.matches
+	tt := ui.NewTester(a.settings.view, 780, 560)
+
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("zzzz-no-match")
+	tt.Frame()
+	if len(l.shown) != 0 || l.chosen != -1 {
+		t.Fatalf("expected empty results: shown=%d chosen=%d", len(l.shown), l.chosen)
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !tt.Focused("Search") {
+		t.Fatal("Enter on empty search stole focus from Search")
+	}
+}
+
+// TestMatchesSearchPreservesIDAndScrollsIntoView checks that filtering keeps
+// the chosen match by ID when it remains in results, resets to the first
+// result when filtered out, and keeps the chosen row visible after scrolling.
+func TestMatchesSearchPreservesIDAndScrollsIntoView(t *testing.T) {
+	a := testApp(t)
+	for i := range 40 {
+		a.store.Add(model.Match{
+			Trigger: fmt.Sprintf(":item%02d", i),
+			Replace: fmt.Sprintf("Item %02d", i),
+			Enabled: true,
+		})
+	}
+	l := &a.settings.matches
+	tt := ui.NewTester(a.settings.view, 780, 560)
+
+	// Scroll far down the list to :item35.
+	idx35 := slices.IndexFunc(l.shown, func(m model.Match) bool { return m.Trigger == ":item35" })
+	if idx35 < 20 {
+		t.Fatalf("expected :item35 far down list, got %d", idx35)
+	}
+	l.chosen = idx35
+	l.listState.ScrollIntoView(idx35)
+	tt.Frame()
+	tt.Frame()
+	first, last := l.listState.Visible()
+	if first == 0 || idx35 < first || idx35 > last {
+		t.Fatalf("list not scrolled to :item35 (%d): visible=[%d,%d]", idx35, first, last)
+	}
+
+	// Narrowing while :item35 still matches preserves it by ID and keeps it visible.
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("item3")
+	tt.Frame()
+	tt.Frame()
+	if m, ok := l.selected(); !ok || m.Trigger != ":item35" {
+		t.Fatalf("lost :item35 on narrowing search: %+v ok=%v", m, ok)
+	}
+	first, last = l.listState.Visible()
+	if l.chosen < first || l.chosen > last {
+		t.Fatalf("preserved selection %d not visible: [%d,%d]", l.chosen, first, last)
+	}
+
+	// Changing search to exclude :item35 selects the first result and scrolls it into view.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	tt.Type("item0")
+	tt.Frame()
+	tt.Frame()
+	if m, ok := l.selected(); !ok || l.chosen != 0 || m.Trigger != ":item00" {
+		t.Fatalf("expected :item00 at index 0: chosen=%d match=%+v ok=%v", l.chosen, m, ok)
+	}
+	first, last = l.listState.Visible()
+	if first > 0 || last < 0 {
+		t.Fatalf("top result not visible after filtering scrolled list: [%d,%d]", first, last)
+	}
+
+	// Clearing search keeps the chosen match (:item05) selected by ID and visible.
+	for range 5 {
+		tt.Key(0, ui.KeyDown)
+	}
+	tt.Frame()
+	if m, ok := l.selected(); !ok || m.Trigger != ":item05" {
+		t.Fatalf("expected :item05: %+v ok=%v", m, ok)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	tt.Frame()
+	if m, ok := l.selected(); !ok || m.Trigger != ":item05" {
+		t.Fatalf("clearing search lost :item05: %+v ok=%v", m, ok)
+	}
+	first, last = l.listState.Visible()
+	if l.chosen < first || l.chosen > last {
+		t.Fatalf("selection %d not visible after clearing search: [%d,%d]", l.chosen, first, last)
+	}
+}
+
 func TestHUD(t *testing.T) {
 	a := testApp(t)
 	h := a.hud
