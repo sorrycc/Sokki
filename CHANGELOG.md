@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The update window shows the section of the version it offers: every release needs a `## <version>` section here.
 
-## Unreleased
+## 0.4.0
 
 - Edit a match right in **Settings → Matches**: changes save a moment after you stop typing.
 - An edit that can't be saved, like a taken trigger, says why and shows **Not saved**; `esc` undoes it.
